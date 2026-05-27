@@ -33,6 +33,26 @@ pub const WayplugSnapshotCounts = extern struct {
     outputs: usize,
 };
 
+pub const WayplugOutputInfo = extern struct {
+    size: u32,
+    version: u32,
+    x: i32,
+    y: i32,
+    physical_width: i32,
+    physical_height: i32,
+    subpixel: i32,
+    make: ?[*:0]const u8,
+    model: ?[*:0]const u8,
+    transform: i32,
+    mode_flags: u32,
+    mode_width: i32,
+    mode_height: i32,
+    mode_refresh: i32,
+    scale: i32,
+    name: ?[*:0]const u8,
+    description: ?[*:0]const u8,
+};
+
 const SnapshotHandle = struct {
     allocator: std.mem.Allocator,
     snapshot: snapshot_mod.Snapshot,
@@ -75,6 +95,7 @@ pub const WayplugHostInterface = extern struct {
 
     get_seat_capabilities: ?*const fn (?*anyopaque) callconv(.c) u32,
     get_seat_name: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8,
+    get_output_info: ?*const fn (?*anyopaque, *WayplugOutputInfo) callconv(.c) bool,
 };
 
 const minimum_host_interface_size = @offsetOf(WayplugHostInterface, "userdata") +
@@ -104,6 +125,7 @@ pub fn normalizeHostInterface(host: *const WayplugHostInterface) ?WayplugHostInt
     copyHostField(&normalized, host, "on_embed_destroyed");
     copyHostField(&normalized, host, "get_seat_capabilities");
     copyHostField(&normalized, host, "get_seat_name");
+    copyHostField(&normalized, host, "get_output_info");
     return normalized;
 }
 
@@ -128,6 +150,7 @@ fn emptyHostInterface() WayplugHostInterface {
         .on_embed_destroyed = null,
         .get_seat_capabilities = null,
         .get_seat_name = null,
+        .get_output_info = null,
     };
 }
 
@@ -352,6 +375,7 @@ test "host interface normalization accepts older append-only sizes" {
     try std.testing.expectEqual(@sizeOf(WayplugHostInterface), normalized.size);
     try std.testing.expect(normalized.get_seat_capabilities == null);
     try std.testing.expect(normalized.get_seat_name == null);
+    try std.testing.expect(normalized.get_output_info == null);
     try std.testing.expect(normalized.on_protocol_error == null);
     try std.testing.expect(normalized.on_embed_mapped == null);
     try std.testing.expect(normalized.on_embed_resized == null);
@@ -366,6 +390,14 @@ test "host interface normalization accepts pre-embed-callback sizes" {
     try std.testing.expect(normalized.on_embed_mapped == null);
     try std.testing.expect(normalized.on_embed_resized == null);
     try std.testing.expect(normalized.on_embed_destroyed == null);
+    try std.testing.expect(normalized.get_output_info == null);
+}
+
+test "host interface normalization accepts pre-output-info sizes" {
+    var iface = emptyHostInterface();
+    iface.size = @offsetOf(WayplugHostInterface, "get_output_info");
+    const normalized = normalizeHostInterface(&iface).?;
+    try std.testing.expect(normalized.get_output_info == null);
 }
 
 test "host interface normalization rejects too-small structs" {

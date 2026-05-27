@@ -19,12 +19,33 @@ struct wl_seat;
 struct wl_shm;
 struct wl_subcompositor;
 struct wl_surface;
+struct wl_output;
 struct xdg_wm_base;
 struct zwp_linux_dmabuf_v1;
 
 typedef struct wayplug_server wayplug_server;
 typedef struct wayplug_client wayplug_client;
 typedef struct wayplug_snapshot wayplug_snapshot;
+
+typedef struct wayplug_output_info {
+    uint32_t size;
+    uint32_t version;
+    int32_t x;
+    int32_t y;
+    int32_t physical_width;
+    int32_t physical_height;
+    int32_t subpixel;
+    const char *make;
+    const char *model;
+    int32_t transform;
+    uint32_t mode_flags;
+    int32_t mode_width;
+    int32_t mode_height;
+    int32_t mode_refresh;
+    int32_t scale;
+    const char *name;
+    const char *description;
+} wayplug_output_info;
 
 typedef struct wayplug_snapshot_counts {
     uint32_t size;
@@ -73,6 +94,7 @@ typedef struct wayplug_host_interface {
 
     uint32_t (*get_seat_capabilities)(void *userdata);
     const char *(*get_seat_name)(void *userdata);
+    bool (*get_output_info)(void *userdata, wayplug_output_info *info);
 } wayplug_host_interface;
 
 uint32_t wayplug_abi_version(void);

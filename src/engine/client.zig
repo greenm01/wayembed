@@ -9,6 +9,7 @@ const types = @import("../data/types.zig");
 const model_mod = @import("../data/model.zig");
 const buffer = @import("buffer.zig");
 const embed = @import("embed.zig");
+const output = @import("output.zig");
 const resource = @import("resource.zig");
 const surface = @import("surface.zig");
 const wlc = @import("../wayland/client.zig");
@@ -54,6 +55,7 @@ pub fn clientDestroy(m: *model_mod.Model, id: types.ClientId) void {
     while (findOwnedEmbed(m, id)) |embed_id| embed.embedDestroy(m, embed_id);
     while (findOwnedSurface(m, id)) |surface_id| surface.surfaceDestroy(m, surface_id);
     while (findOwnedBuffer(m, id)) |buffer_id| buffer.bufferDestroy(m, buffer_id);
+    while (findOwnedOutput(m, id)) |output_id| output.outputDestroy(m, output_id);
     while (findOwnedResource(m, id)) |resource_id| resource.resourceDestroy(m, resource_id);
 
     if (c.wl_client) |wl_client| _ = m.client_by_wl_client.swapRemove(wl_client);
@@ -79,6 +81,14 @@ fn findOwnedSurface(m: *const model_mod.Model, client_id: types.ClientId) ?types
 fn findOwnedBuffer(m: *const model_mod.Model, client_id: types.ClientId) ?types.BufferId {
     for (m.buffers.items()) |record| {
         if (record.client_id == client_id) return record.id;
+    }
+    return null;
+}
+
+fn findOwnedOutput(m: *const model_mod.Model, client_id: types.ClientId) ?types.OutputId {
+    for (m.outputs.items()) |record| {
+        const resource_record = m.resources.get(record.resource_id) orelse continue;
+        if (resource_record.client_id == client_id) return record.id;
     }
     return null;
 }

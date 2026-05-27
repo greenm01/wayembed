@@ -145,6 +145,7 @@ static const wayplug_host_interface host_iface = {
     .get_seat = get_seat,
     .get_seat_capabilities = get_seat_capabilities,
     .get_seat_name = get_seat_name,
+    .get_output_info = get_output_info,
     .get_subsurface_offset = get_subsurface_offset,
 
     .on_client_connected = on_client_connected,

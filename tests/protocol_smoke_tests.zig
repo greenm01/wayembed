@@ -47,6 +47,7 @@ test "active protocol bindings instantiate against server runtime" {
     _ = Registry.bindSubcompositor;
     _ = Registry.bindShm;
     _ = Registry.bindSeat;
+    _ = Registry.bindOutput;
     _ = Registry.bindXdgWmBase;
 
     const Compositor = wayplug.protocol.compositor.Bindings(Server, ResourceData);
@@ -76,6 +77,8 @@ test "active protocol bindings instantiate against server runtime" {
     const Keyboard = wayplug.protocol.keyboard.Bindings(Server, ResourceData);
     _ = Keyboard.impl;
     _ = Keyboard.listener;
+    const Output = wayplug.protocol.output.Bindings(Server, ResourceData);
+    _ = Output.impl;
     const XdgWmBase = wayplug.protocol.xdg_wm_base.Bindings(Server, ResourceData);
     _ = XdgWmBase.impl;
     _ = XdgWmBase.listener;
@@ -98,6 +101,11 @@ const RegistryState = struct {
     shm: ?*wlp.wl_shm = null,
     seat: ?*wlp.wl_seat = null,
     seat_capabilities: u32 = 0,
+    output: ?*wlp.wl_output = null,
+    output_seen: bool = false,
+    output_mode_width: i32 = 1,
+    output_mode_height: i32 = 1,
+    output_scale: i32 = 1,
     xdg_wm_base: ?*wlp.xdg_wm_base = null,
 };
 
@@ -107,6 +115,10 @@ const HostSmokeState = struct {
     shm: ?*wlp.wl_shm = null,
     seat: ?*wlp.wl_seat = null,
     seat_capabilities: u32 = 0,
+    output_seen: bool = false,
+    output_mode_width: i32 = 1,
+    output_mode_height: i32 = 1,
+    output_scale: i32 = 1,
     xdg_wm_base: ?*wlp.xdg_wm_base = null,
     parent_surface: ?*wlp.wl_surface = null,
     surface_created_count: std.atomic.Value(u32) = .init(0),
@@ -142,6 +154,15 @@ const seat_listener = wlc.struct_wl_seat_listener{
     .name = seatName,
 };
 
+const output_listener = wlc.struct_wl_output_listener{
+    .geometry = outputGeometry,
+    .mode = outputMode,
+    .done = outputDone,
+    .scale = outputScale,
+    .name = outputName,
+    .description = outputDescription,
+};
+
 fn registryGlobal(
     data: ?*anyopaque,
     registry: ?*wlc.struct_wl_registry,
@@ -169,6 +190,11 @@ fn registryGlobal(
         const seat: *wlp.wl_seat = @ptrCast(bound);
         state.seat = seat;
         _ = wlc.wl_seat_add_listener(seat, &seat_listener, state);
+    } else if (std.mem.eql(u8, interface_name, "wl_output")) {
+        const bound = wlc.wl_registry_bind(reg, name, &wlc.wl_output_interface, @min(version, 4)) orelse return;
+        const output: *wlp.wl_output = @ptrCast(bound);
+        state.output = output;
+        _ = wlc.wl_output_add_listener(output, &output_listener, state);
     } else if (std.mem.eql(u8, interface_name, "xdg_wm_base")) {
         const bound = wlc.wl_registry_bind(reg, name, &wlc.xdg_wm_base_interface, @min(version, 7)) orelse return;
         state.xdg_wm_base = @ptrCast(bound);
@@ -189,6 +215,59 @@ fn seatCapabilities(data: ?*anyopaque, _: ?*wlp.wl_seat, capabilities: u32) call
 }
 
 fn seatName(_: ?*anyopaque, _: ?*wlp.wl_seat, _: [*c]const u8) callconv(.c) void {}
+
+fn outputGeometry(
+    data: ?*anyopaque,
+    _: ?*wlp.wl_output,
+    _: i32,
+    _: i32,
+    _: i32,
+    _: i32,
+    _: i32,
+    _: [*c]const u8,
+    _: [*c]const u8,
+    _: i32,
+) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.output_seen = true;
+}
+
+fn outputMode(
+    data: ?*anyopaque,
+    _: ?*wlp.wl_output,
+    flags: u32,
+    width: i32,
+    height: i32,
+    _: i32,
+) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    if ((flags & @as(u32, @intCast(wlc.WL_OUTPUT_MODE_CURRENT))) != 0) {
+        state.output_mode_width = width;
+        state.output_mode_height = height;
+    }
+    state.output_seen = true;
+}
+
+fn outputDone(data: ?*anyopaque, _: ?*wlp.wl_output) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.output_seen = true;
+}
+
+fn outputScale(data: ?*anyopaque, _: ?*wlp.wl_output, factor: i32) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.output_scale = factor;
+    state.output_seen = true;
+}
+
+fn outputName(data: ?*anyopaque, _: ?*wlp.wl_output, _: [*c]const u8) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.output_seen = true;
+}
+
+fn outputDescription(data: ?*anyopaque, _: ?*wlp.wl_output, _: [*c]const u8) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.output_seen = true;
+}
 
 fn hostCompositor(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_compositor {
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return null));
@@ -213,6 +292,19 @@ fn hostSeat(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_seat {
 fn hostXdgWmBase(userdata: ?*anyopaque) callconv(.c) ?*wlp.xdg_wm_base {
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return null));
     return state.xdg_wm_base;
+}
+
+fn hostOutputInfo(userdata: ?*anyopaque, info: *wayplug.c_api.WayplugOutputInfo) callconv(.c) bool {
+    const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return false));
+    if (!state.output_seen) return false;
+    info.mode_width = state.output_mode_width;
+    info.mode_height = state.output_mode_height;
+    info.scale = state.output_scale;
+    info.make = "wayplug";
+    info.model = "smoke-output";
+    info.name = "wayplug-smoke-0";
+    info.description = "wayplug smoke output";
+    return true;
 }
 
 fn hostSeatCapabilities(userdata: ?*anyopaque) callconv(.c) u32 {
@@ -328,6 +420,10 @@ test "weston headless smoke forwards create attach commit and embed" {
         .shm = host_registry_state.shm,
         .seat = host_registry_state.seat,
         .seat_capabilities = host_registry_state.seat_capabilities,
+        .output_seen = host_registry_state.output_seen,
+        .output_mode_width = host_registry_state.output_mode_width,
+        .output_mode_height = host_registry_state.output_mode_height,
+        .output_scale = host_registry_state.output_scale,
         .xdg_wm_base = host_registry_state.xdg_wm_base,
         .parent_surface = parent_surface,
     };
@@ -343,6 +439,7 @@ test "weston headless smoke forwards create attach commit and embed" {
         .get_dmabuf = null,
         .get_seat_capabilities = hostSeatCapabilities,
         .get_seat_name = null,
+        .get_output_info = hostOutputInfo,
         .get_subsurface_offset = hostSubsurfaceOffset,
         .on_client_connected = null,
         .on_surface_created = hostSurfaceCreated,
@@ -370,6 +467,13 @@ test "weston headless smoke forwards create attach commit and embed" {
     }
     if (host_registry_state.xdg_wm_base != null) {
         try std.testing.expect(plugin_registry_state.xdg_wm_base != null);
+    }
+    if (host_registry_state.output_seen) {
+        try std.testing.expect(plugin_registry_state.output != null);
+        try std.testing.expect(plugin_registry_state.output_seen);
+        try std.testing.expectEqual(host_registry_state.output_mode_width, plugin_registry_state.output_mode_width);
+        try std.testing.expectEqual(host_registry_state.output_mode_height, plugin_registry_state.output_mode_height);
+        try std.testing.expectEqual(host_registry_state.output_scale, plugin_registry_state.output_scale);
     }
     const plugin_surface = wlc.wl_compositor_create_surface(plugin_registry_state.compositor.?) orelse return error.CreatePluginSurfaceFailed;
     defer wlc.wl_surface_destroy(plugin_surface);
@@ -400,6 +504,7 @@ test "weston headless smoke forwards create attach commit and embed" {
     try std.testing.expectEqual(@as(usize, 1), server.engine.model.buffers.count());
     const expected_resource_count: usize = 7 +
         @as(usize, if (plugin_registry_state.seat != null) 1 else 0) +
+        @as(usize, if (plugin_registry_state.output != null) 1 else 0) +
         @as(usize, if (plugin_registry_state.xdg_wm_base != null) 1 else 0);
     try std.testing.expectEqual(expected_resource_count, server.engine.model.resources.count());
     try std.testing.expectEqual(@as(c_int, 0), wlc.wl_display_get_error(plugin_display));

@@ -31,12 +31,15 @@ complete:
   events from host-provided seats.
 - stable XDG shell delegates forward `xdg_wm_base`, `xdg_positioner`,
   `xdg_surface`, `xdg_toplevel`, and `xdg_popup`.
+- `wl_output` forwards a host-provided output metadata snapshot so plugins
+  can receive scale and mode information.
 
 ## Phase 2: Embedded UI working
 
-### `wl_output`
+### Resize and lifecycle helpers
 
-Output metadata forwarding so plugins can scale correctly.
+Formalize the host/plugin resize and close lifecycle on top of the existing
+embed callbacks.
 
 ## Tests and CI
 

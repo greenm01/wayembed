@@ -22,6 +22,13 @@ pub fn outputDestroy(m: *model_mod.Model, id: types.OutputId) void {
     _ = m.outputs.delete(id);
 }
 
+pub fn outputForResource(m: *const model_mod.Model, resource_id: types.ResourceId) ?types.OutputId {
+    for (m.outputs.items()) |record| {
+        if (record.resource_id == resource_id) return record.id;
+    }
+    return null;
+}
+
 // ===== production code above =====
 
 test "output create and destroy" {
@@ -30,6 +37,8 @@ test "output create and destroy" {
     const rid = try m.nextResourceId();
     const oid = try outputCreate(&m, rid, 0);
     try std.testing.expect(m.outputs.contains(oid));
+    try std.testing.expectEqual(oid, outputForResource(&m, rid).?);
     outputDestroy(&m, oid);
     try std.testing.expect(!m.outputs.contains(oid));
+    try std.testing.expect(outputForResource(&m, rid) == null);
 }

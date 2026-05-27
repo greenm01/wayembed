@@ -98,6 +98,18 @@ pub const Engine = struct {
         return buffer.bufferCreate(&self.model, client_id, resource_id);
     }
 
+    pub fn outputCreate(self: *Engine, resource_id: types.ResourceId, name: u32) !types.OutputId {
+        return output.outputCreate(&self.model, resource_id, name);
+    }
+
+    pub fn outputDestroy(self: *Engine, id: types.OutputId) void {
+        output.outputDestroy(&self.model, id);
+    }
+
+    pub fn outputForResource(self: *const Engine, resource_id: types.ResourceId) ?types.OutputId {
+        return output.outputForResource(&self.model, resource_id);
+    }
+
     pub fn upstreamProxyForResource(self: *const Engine, resource_id: types.ResourceId) ?*@import("../wayland/client.zig").wl_proxy {
         return resource.upstreamProxyForResource(&self.model, resource_id);
     }

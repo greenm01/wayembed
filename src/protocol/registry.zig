@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const compositor_protocol = @import("compositor.zig");
+const output_protocol = @import("output.zig");
 const runtime = @import("runtime.zig");
 const seat_protocol = @import("seat.zig");
 const shm_protocol = @import("shm.zig");
@@ -25,6 +26,7 @@ pub fn selectVersion(requested: u32, advertised_max: u32) ?u32 {
 pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
     const H = runtime.Helpers(Server, ResourceData);
     const compositor_bindings = compositor_protocol.Bindings(Server, ResourceData);
+    const output_bindings = output_protocol.Bindings(Server, ResourceData);
     const seat_bindings = seat_protocol.Bindings(Server, ResourceData);
     const shm_bindings = shm_protocol.Bindings(Server, ResourceData);
     const subcompositor_bindings = subcompositor_protocol.Bindings(Server, ResourceData);
@@ -124,6 +126,34 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
             ) orelse return;
             wls.c.wl_seat_send_capabilities(resource, server.host.getSeatCapabilities());
             if (selected_version >= 2) wls.c.wl_seat_send_name(resource, server.host.getSeatName());
+        }
+
+        pub fn bindOutput(client: ?*wls.wl_client, data: ?*anyopaque, version: u32, id: u32) callconv(.c) void {
+            const server = H.serverFromData(data) orelse return;
+            const wl_client = client orelse return;
+            const selected_version = selectVersion(version, 4) orelse {
+                server.protocolErrorForClient(wl_client, invalid_method);
+                return;
+            };
+            const info = server.host.getOutputInfo() orelse {
+                server.protocolErrorForClient(wl_client, implementation_error);
+                return;
+            };
+            const resource = server.createResource(
+                wl_client,
+                .output,
+                &wls.c.wl_output_interface,
+                selected_version,
+                id,
+                @ptrCast(&output_bindings.impl),
+                null,
+            ) orelse return;
+            const resource_data = H.dataForResource(resource) orelse return;
+            _ = server.engine.outputCreate(resource_data.resource_id, 0) catch {
+                wls.c.wl_resource_destroy(resource);
+                return;
+            };
+            output_protocol.sendInitial(resource, info);
         }
 
         pub fn bindXdgWmBase(client: ?*wls.wl_client, data: ?*anyopaque, version: u32, id: u32) callconv(.c) void {

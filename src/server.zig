@@ -265,6 +265,9 @@ pub const Server = struct {
         if (self.host.getSeat() != null) {
             try self.registerGlobal(&wls.c.wl_seat_interface, 4, registry_bindings.bindSeat);
         }
+        if (self.host.getOutputInfo() != null) {
+            try self.registerGlobal(&wls.c.wl_output_interface, 4, registry_bindings.bindOutput);
+        }
         if (self.host.getXdgWmBase() != null) {
             try self.registerGlobal(&xdgs.c.xdg_wm_base_interface, 7, registry_bindings.bindXdgWmBase);
         }
@@ -480,6 +483,7 @@ const RegistryTestState = struct {
     shm_enabled: bool = false,
     seat_enabled: bool = false,
     xdg_wm_base_enabled: bool = false,
+    output_enabled: bool = false,
     seat_capabilities: u32 = host_mod.default_seat_capabilities,
 };
 
@@ -518,6 +522,15 @@ fn fakeXdgWmBase(userdata: ?*anyopaque) callconv(.c) ?*wlp.xdg_wm_base {
     return @ptrFromInt(0x5000);
 }
 
+fn fakeOutputInfo(userdata: ?*anyopaque, info: *c_api.WayplugOutputInfo) callconv(.c) bool {
+    const state: *RegistryTestState = @ptrCast(@alignCast(userdata.?));
+    if (!state.output_enabled) return false;
+    info.mode_width = 800;
+    info.mode_height = 600;
+    info.scale = 2;
+    return true;
+}
+
 fn testHostInterface(userdata: ?*anyopaque) c_api.WayplugHostInterface {
     return .{
         .size = @sizeOf(c_api.WayplugHostInterface),
@@ -531,6 +544,7 @@ fn testHostInterface(userdata: ?*anyopaque) c_api.WayplugHostInterface {
         .get_dmabuf = null,
         .get_seat_capabilities = fakeSeatCapabilities,
         .get_seat_name = null,
+        .get_output_info = fakeOutputInfo,
         .get_subsurface_offset = null,
         .on_client_connected = null,
         .on_surface_created = null,
@@ -591,6 +605,7 @@ test "Server create and destroy is balanced" {
         .get_dmabuf = null,
         .get_seat_capabilities = null,
         .get_seat_name = null,
+        .get_output_info = null,
         .get_subsurface_offset = null,
         .on_client_connected = null,
         .on_surface_created = null,
@@ -619,6 +634,7 @@ test "protocol_error effect drains to host callback" {
         .get_dmabuf = null,
         .get_seat_capabilities = null,
         .get_seat_name = null,
+        .get_output_info = null,
         .get_subsurface_offset = null,
         .on_client_connected = null,
         .on_surface_created = null,
@@ -661,6 +677,7 @@ test "embed lifecycle effects drain to host callbacks" {
         .get_dmabuf = null,
         .get_seat_capabilities = null,
         .get_seat_name = null,
+        .get_output_info = null,
         .get_subsurface_offset = null,
         .on_client_connected = null,
         .on_surface_created = null,
@@ -723,6 +740,16 @@ test "server registers host-supplied xdg_wm_base global" {
 
     try std.testing.expectEqual(@as(usize, 1), s.globals.items.len);
     try std.testing.expectEqual(@as(u32, 7), wls.c.wl_global_get_version(s.globals.items[0]));
+}
+
+test "server registers host-supplied output global" {
+    var state = RegistryTestState{ .output_enabled = true };
+    const iface = testHostInterface(&state);
+    const s = try Server.create(std.testing.allocator, &iface, null);
+    defer s.destroy();
+
+    try std.testing.expectEqual(@as(usize, 1), s.globals.items.len);
+    try std.testing.expectEqual(@as(u32, 4), wls.c.wl_global_get_version(s.globals.items[0]));
 }
 
 test "invalid registry bind queues protocol error without resource" {
