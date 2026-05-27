@@ -5,9 +5,10 @@ to embed a Wayland-native plugin editor. The host in the examples is
 Carla-shaped: a Qt-based audio plugin host with its own Wayland connection
 and an editor area inside a host window.
 
-The walkthrough is the validation harness for the [C ABI
-Sketch](c-abi-sketch.md). Anything awkward to write below is an ABI mistake
-that should be fixed before code lands.
+The public ABI in [../include/wayplug.h](../include/wayplug.h) is the source
+of truth. This walkthrough is the validation harness for that ABI: anything
+awkward to write below is an ABI mistake that should be fixed before code
+lands.
 
 ## Shape of a Session
 
@@ -52,9 +53,8 @@ host                                wayplug                       plugin
 ## Setting Up the Host Interface
 
 The host provides upstream globals (compositor, shm, seat) and lifecycle
-callbacks through a single `wayplug_host_interface` struct. The current
-[C ABI Sketch](c-abi-sketch.md) shows the getters; the walkthrough adds
-the lifecycle half so this can be exercised end-to-end.
+callbacks through a single `wayplug_host_interface` struct. Null function
+pointers disable optional globals or notifications.
 
 ```c
 #include <wayplug.h>
@@ -65,8 +65,11 @@ struct carla_host {
     struct wl_subcompositor *upstream_subcompositor;
     struct wl_shm *upstream_shm;
     struct wl_seat *upstream_seat;
+    struct xdg_wm_base *upstream_xdg_wm_base;
 
     struct wl_surface *editor_parent_surface;
+    int editor_x_in_window;
+    int editor_y_in_window;
     int editor_width;
     int editor_height;
 };
@@ -87,6 +90,10 @@ static struct wl_seat *get_seat(void *u) {
     return ((struct carla_host *)u)->upstream_seat;
 }
 
+static struct xdg_wm_base *get_xdg_wm_base(void *u) {
+    return ((struct carla_host *)u)->upstream_xdg_wm_base;
+}
+
 static uint32_t get_seat_capabilities(void *u) {
     (void)u;
     return WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD;
@@ -95,6 +102,15 @@ static uint32_t get_seat_capabilities(void *u) {
 static const char *get_seat_name(void *u) {
     (void)u;
     return "carla-seat";
+}
+
+static bool get_output_info(void *u, wayplug_output_info *info) {
+    (void)u;
+    info->mode_width = 1920;
+    info->mode_height = 1080;
+    info->scale = 1;
+    info->name = "wayplug-host-output";
+    return true;
 }
 
 static bool get_subsurface_offset(void *u, int32_t *x, int32_t *y,
@@ -113,6 +129,11 @@ static void on_client_connected(void *u, wayplug_client *client) {
     /* Optional logging. */
 }
 
+static void on_protocol_error(void *u, wayplug_client *client, uint32_t code) {
+    (void)u; (void)client; (void)code;
+    /* Optional diagnostics. */
+}
+
 static void on_surface_created(void *u, wayplug_client *client,
                                struct wl_surface *plugin_child_surface) {
     struct carla_host *h = u;
@@ -126,6 +147,22 @@ static void on_client_closed(void *u, wayplug_client *client) {
     (void)client;
     struct carla_host *h = u;
     carla_clear_editor_area(h);
+}
+
+static void on_embed_mapped(void *u, uint32_t embed_id) {
+    (void)u; (void)embed_id;
+    /* Optional logging. */
+}
+
+static void on_embed_resized(void *u, uint32_t embed_id,
+                             int32_t width, int32_t height) {
+    (void)u; (void)embed_id; (void)width; (void)height;
+    /* Optional logging. */
+}
+
+static void on_embed_destroyed(void *u, uint32_t embed_id) {
+    (void)u; (void)embed_id;
+    /* Optional cleanup/logging. */
 }
 ```
 
@@ -143,14 +180,21 @@ static const wayplug_host_interface host_iface = {
     .get_subcompositor = get_subcompositor,
     .get_shm = get_shm,
     .get_seat = get_seat,
+    .get_xdg_wm_base = get_xdg_wm_base,
+    .get_dmabuf = NULL,
+    .get_subsurface_offset = get_subsurface_offset,
+
     .get_seat_capabilities = get_seat_capabilities,
     .get_seat_name = get_seat_name,
     .get_output_info = get_output_info,
-    .get_subsurface_offset = get_subsurface_offset,
 
     .on_client_connected = on_client_connected,
     .on_surface_created = on_surface_created,
     .on_client_closed = on_client_closed,
+    .on_protocol_error = on_protocol_error,
+    .on_embed_mapped = on_embed_mapped,
+    .on_embed_resized = on_embed_resized,
+    .on_embed_destroyed = on_embed_destroyed,
 };
 ```
 

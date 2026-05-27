@@ -1,13 +1,14 @@
 # TODO
 
-Current work toward the Phase 1 MVP and the embedded UI path from
-[roadmap.md](roadmap.md). Items are roughly in dependency order; later
-items assume earlier ones.
+Current work after the Phase 1 MVP and embedded UI path from
+[roadmap.md](roadmap.md). The immediate implementation backlog is small;
+most remaining work is blocked on external compositor support or belongs to
+later roadmap phases.
 
-## Completed checkpoint
+## Current checkpoint
 
-Phase 0, Phase 1 delegate flow, and the first engine-maturation pass are
-complete:
+Phase 0, Phase 1 delegate flow, the first engine-maturation pass, and the
+current Phase 2 embedded UI path are complete:
 
 - libwayland is linked through pkg-config.
 - `server.zig` owns a real Wayland display and event loop.
@@ -39,7 +40,8 @@ complete:
 - the embedded editor session lifecycle is formalized around
   client-scoped attach, resize, and teardown, with attach allowed from
   `on_surface_created`.
-- GitHub Actions runs the pinned Zig formatter and test suite on Linux.
+- GitHub Actions runs the pinned Zig formatter, default test suite, and a
+  required Weston smoke path on Linux.
 
 ## Tests and CI
 
@@ -47,8 +49,10 @@ complete:
 
 Weston, River, Mutter, and KWin headless or virtual coverage exists in
 `tests/protocol_smoke_tests.zig`; Niri nested coverage exists when a parent
-display is available. Add Hyprland coverage once a reliable headless or
-nested test invocation is available.
+display is available.
+
+Add Hyprland coverage only after a reliable headless or nested test
+invocation is available.
 
 Hyprland 0.55.2 is installed on the CachyOS dev machine, but is not yet
 usable as a smoke target: isolated headless startup fails before creating a
@@ -60,9 +64,9 @@ diagnostics for the next investigation pass.
 ### CI
 
 Baseline GitHub Actions coverage exists with a pinned Zig version,
-`zig fmt --check`, and `zig build test` on Linux. Expand to a compositor
-matrix (Weston, River, Mutter, Niri, KWin, Hyprland) once CI can provide those
-environments.
+`zig fmt --check`, `zig build test`, and a required Weston smoke run on
+Linux. Expand to a broader compositor matrix (River, Mutter, Niri, KWin,
+Hyprland) once CI can provide those environments.
 
 ### Fuzz and protocol-error tests
 
@@ -90,5 +94,6 @@ These came up while writing other docs but did not fit the current scope.
 - Pin the ABI-bump policy with a worked example the first time a real break
   happens. Rules live in [../CONTRIBUTING.md](../CONTRIBUTING.md); no example
   yet.
-- Decide whether `docs/wsd-architecture.md` gets trimmed when Phase 1 lands
-  and the reference value drops, or stays as a long-term anchor.
+- Keep [wsd-architecture.md](wsd-architecture.md) as a prior-art reference.
+  It is not a contract for wayplug, but it remains useful context for the
+  delegated-server model and protocol coverage decisions.
