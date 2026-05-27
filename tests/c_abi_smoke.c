@@ -64,29 +64,29 @@ static void on_client_closed(void *userdata, wayembed_client *client)
     }
 }
 
-static void on_embed_mapped(void *userdata, uint32_t embed_id)
+static void on_embed_mapped(void *userdata, wayembed_embed *embed)
 {
     (void)userdata;
-    if (embed_id != 0) {
+    if (wayembed_embed_id(embed) != 0) {
         mapped_count += 1;
     }
 }
 
 static void on_embed_resized(void *userdata,
-                             uint32_t embed_id,
+                             wayembed_embed *embed,
                              int32_t width,
                              int32_t height)
 {
     (void)userdata;
-    if (embed_id != 0 && width >= 0 && height >= 0) {
+    if (wayembed_embed_id(embed) != 0 && width >= 0 && height >= 0) {
         resized_count += 1;
     }
 }
 
-static void on_embed_destroyed(void *userdata, uint32_t embed_id)
+static void on_embed_destroyed(void *userdata, wayembed_embed *embed)
 {
     (void)userdata;
-    if (embed_id != 0) {
+    if (wayembed_embed_id(embed) != 0) {
         destroyed_count += 1;
     }
 }
@@ -312,9 +312,41 @@ int main(void)
     }
     wayembed_snapshot_free(closed_snapshot);
 
-    /* Embed operations accept null client opaquely. */
-    (void)wayembed_embed_attach(NULL, NULL, NULL);
-    (void)wayembed_embed_resize(NULL, 0, 0);
+    /* Embed operations reject invalid handles and structs with status codes. */
+    wayembed_embed *embed = NULL;
+    if (wayembed_embed_attach(NULL, &embed) !=
+        WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
+        wayembed_server_destroy(server);
+        return 33;
+    }
+    wayembed_embed_attach_info attach_info;
+    attach_info.size = offsetof(wayembed_embed_attach_info, child_surface);
+    attach_info.version = WAYEMBED_ABI_VERSION;
+    attach_info.client = last_client;
+    attach_info.parent_surface = NULL;
+    attach_info.child_surface = NULL;
+    if (wayembed_embed_attach(&attach_info, &embed) !=
+        WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
+        wayembed_server_destroy(server);
+        return 34;
+    }
+    attach_info.size = sizeof(attach_info);
+    attach_info.version = WAYEMBED_ABI_VERSION + 1u;
+    if (wayembed_embed_attach(&attach_info, &embed) !=
+        WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
+        wayembed_server_destroy(server);
+        return 35;
+    }
+    if (wayembed_embed_resize(NULL, 0, 0) !=
+        WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
+        wayembed_server_destroy(server);
+        return 36;
+    }
+    if (wayembed_embed_id(NULL) != 0 ||
+        wayembed_embed_client(NULL) != NULL) {
+        wayembed_server_destroy(server);
+        return 37;
+    }
 
     wayembed_server_destroy(server);
     return 0;

@@ -19,9 +19,10 @@ The host creates and owns a normal `wayembed_server`:
 3. Pass `handoff.display` and `handoff.format_token` through the plugin
    format's experimental Wayland UI path.
 4. In `on_surface_created`, attach the plugin child surface with
-   `wayembed_embed_attach()`.
+   `wayembed_embed_attach()` and store the returned `wayembed_embed *`.
 5. On host-side editor resize, validate the new size with
-   `wayembed_adapter_resize_validate()` and call `wayembed_embed_resize()`.
+   `wayembed_adapter_resize_validate()` and call `wayembed_embed_resize()` on
+   that embed handle.
 6. Close the client display or destroy the server when the plugin UI exits.
 
 The adapter structs are descriptive. They do not own the display, server,
@@ -45,7 +46,7 @@ A CLAP-shaped host should:
 - pass `handoff.format_token` as the API name and `handoff.display` as the
   Wayland display payload in its experimental glue;
 - map plugin resize requests to `wayembed_adapter_resize` plus
-  `wayembed_embed_resize()`.
+  `wayembed_embed_resize()` on the active embed handle.
 
 ## LV2 Mapping
 
@@ -73,9 +74,9 @@ For a Carla-style host, the adapter layer is thin:
 - the existing host integration path creates the server and opens the
   client display;
 - `on_surface_created` still calls `wayembed_embed_attach()` with Carla's
-  editor parent surface;
+  editor parent surface and stores the returned embed handle;
 - Carla window resize still updates host editor dimensions and calls
-  `wayembed_embed_resize()`.
+  `wayembed_embed_resize()` on that handle.
 
 No adapter API in this first slice creates plugin instances, loads bundles,
 or dispatches CLAP/LV2 callbacks. Those responsibilities remain in the host

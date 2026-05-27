@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define WAYEMBED_ABI_VERSION 1u
+#define WAYEMBED_ABI_VERSION 2u
 
 #define WAYEMBED_FEATURE_COMPOSITOR (1ull << 0)
 #define WAYEMBED_FEATURE_SUBCOMPOSITOR (1ull << 1)
@@ -22,6 +22,16 @@ extern "C" {
 #define WAYEMBED_FEATURE_TOUCH (1ull << 8)
 #define WAYEMBED_FEATURE_OUTPUT (1ull << 9)
 #define WAYEMBED_FEATURE_XDG_SHELL (1ull << 10)
+
+#define WAYEMBED_EMBED_STATUS_OK 0u
+#define WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT 1u
+#define WAYEMBED_EMBED_STATUS_CLIENT_CLOSING 2u
+#define WAYEMBED_EMBED_STATUS_ALREADY_EMBEDDED 3u
+#define WAYEMBED_EMBED_STATUS_UNKNOWN_SURFACE 4u
+#define WAYEMBED_EMBED_STATUS_SURFACE_HAS_ROLE 5u
+#define WAYEMBED_EMBED_STATUS_UNSUPPORTED 6u
+#define WAYEMBED_EMBED_STATUS_UPSTREAM_FAILED 7u
+#define WAYEMBED_EMBED_STATUS_UNKNOWN_EMBED 8u
 
 struct wl_compositor;
 struct wl_display;
@@ -37,6 +47,7 @@ struct zwp_linux_dmabuf_v1;
 
 typedef struct wayembed_server wayembed_server;
 typedef struct wayembed_client wayembed_client;
+typedef struct wayembed_embed wayembed_embed;
 typedef struct wayembed_snapshot wayembed_snapshot;
 
 typedef struct wayembed_output_info {
@@ -76,6 +87,14 @@ typedef struct wayembed_features {
     uint64_t flags;
 } wayembed_features;
 
+typedef struct wayembed_embed_attach_info {
+    uint32_t size;
+    uint32_t version;
+    wayembed_client *client;
+    struct wl_surface *parent_surface;
+    struct wl_surface *child_surface;
+} wayembed_embed_attach_info;
+
 typedef struct wayembed_host_interface {
     uint32_t size;
     uint32_t version;
@@ -103,12 +122,12 @@ typedef struct wayembed_host_interface {
     void (*on_protocol_error)(void *userdata,
                               wayembed_client *client,
                               uint32_t code);
-    void (*on_embed_mapped)(void *userdata, uint32_t embed_id);
+    void (*on_embed_mapped)(void *userdata, wayembed_embed *embed);
     void (*on_embed_resized)(void *userdata,
-                             uint32_t embed_id,
+                             wayembed_embed *embed,
                              int32_t width,
                              int32_t height);
-    void (*on_embed_destroyed)(void *userdata, uint32_t embed_id);
+    void (*on_embed_destroyed)(void *userdata, wayembed_embed *embed);
 
     uint32_t (*get_seat_capabilities)(void *userdata);
     const char *(*get_seat_name)(void *userdata);
@@ -151,13 +170,14 @@ void wayembed_server_destroy_proxy(wayembed_server *server,
                                    struct wl_proxy *proxy);
 
 /* Attaches a plugin child surface to a host parent surface. */
-bool wayembed_embed_attach(wayembed_client *client,
-                           struct wl_surface *parent_surface,
-                           struct wl_surface *child_surface);
+uint32_t wayembed_embed_attach(const wayembed_embed_attach_info *info,
+                               wayembed_embed **out_embed);
 
-bool wayembed_embed_resize(wayembed_client *client,
-                           int32_t width,
-                           int32_t height);
+uint32_t wayembed_embed_resize(wayembed_embed *embed,
+                               int32_t width,
+                               int32_t height);
+uint32_t wayembed_embed_id(const wayembed_embed *embed);
+wayembed_client *wayembed_embed_client(const wayembed_embed *embed);
 
 #ifdef __cplusplus
 }

@@ -8,7 +8,6 @@ const types = @import("../data/types.zig");
 pub const Effect = union(enum) {
     client_connected: types.ClientId,
     client_closed: types.ClientId,
-    surface_created: struct { client_id: types.ClientId, surface_id: types.SurfaceId },
     surface_destroyed: struct { client_id: types.ClientId, surface_id: types.SurfaceId },
     embed_mapped: types.EmbedId,
     embed_resized: struct { embed_id: types.EmbedId, width: i32, height: i32 },

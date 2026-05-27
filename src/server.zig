@@ -31,6 +31,13 @@ pub const ClientHandle = struct {
     close_pending: bool = false,
 };
 
+pub const EmbedHandle = struct {
+    server: *Server,
+    embed_id: types.EmbedId,
+    client_id: types.ClientId,
+    destroyed: bool = false,
+};
+
 pub const ResourceData = struct {
     server: *Server,
     client_id: types.ClientId,
@@ -58,6 +65,7 @@ pub const Server = struct {
     event_loop: *wls.wl_event_loop,
     queue: ?*wlc.wl_event_queue,
     client_handles: std.ArrayListUnmanaged(*ClientHandle) = .empty,
+    embed_handles: std.ArrayListUnmanaged(*EmbedHandle) = .empty,
     globals: std.ArrayListUnmanaged(*wls.wl_global) = .empty,
 
     pub fn create(
@@ -97,6 +105,10 @@ pub const Server = struct {
             self.allocator.destroy(handle);
         }
         self.client_handles.deinit(self.allocator);
+        while (self.embed_handles.pop()) |handle| {
+            self.allocator.destroy(handle);
+        }
+        self.embed_handles.deinit(self.allocator);
         wls.c.wl_display_destroy_clients(self.display);
         wls.c.wl_display_destroy(self.display);
         self.engine.deinit();
@@ -190,9 +202,14 @@ pub const Server = struct {
         return null;
     }
 
+    pub fn opaqueClientForId(self: *Server, client_id: types.ClientId) ?*c_api.wayembed_client {
+        return opaqueClient(self.findClientHandleById(client_id));
+    }
+
     fn closeClientHandle(self: *Server, handle: *ClientHandle, emit_effect: bool) void {
         self.releaseClientOwnedUpstreams(handle.client_id);
         if (emit_effect) {
+            self.markClientEmbedsDestroyed(handle.client_id);
             self.engine.clientDestroy(handle.client_id) catch {};
             handle.close_pending = true;
         } else {
@@ -222,23 +239,20 @@ pub const Server = struct {
                     self.host.onClientClosed(opaqueClient(handle));
                     if (handle) |h| self.freeClientHandle(h);
                 },
-                .surface_created => |created| {
-                    const handle = self.findClientHandleById(created.client_id);
-                    const surface = self.upstreamSurfaceForId(created.surface_id);
-                    self.host.onSurfaceCreated(opaqueClient(handle), surface);
-                },
                 .protocol_error => |err| {
                     const handle = self.findClientHandleById(err.client_id);
                     self.host.onProtocolError(opaqueClient(handle), err.code);
                 },
                 .embed_mapped => |embed_id| {
-                    self.host.onEmbedMapped(embedIdInt(embed_id));
+                    self.host.onEmbedMapped(opaqueEmbed(self.findEmbedHandleById(embed_id)));
                 },
                 .embed_resized => |resized| {
-                    self.host.onEmbedResized(embedIdInt(resized.embed_id), resized.width, resized.height);
+                    self.host.onEmbedResized(opaqueEmbed(self.findEmbedHandleById(resized.embed_id)), resized.width, resized.height);
                 },
                 .embed_destroyed => |embed_id| {
-                    self.host.onEmbedDestroyed(embedIdInt(embed_id));
+                    const handle = self.findEmbedHandleById(embed_id);
+                    self.host.onEmbedDestroyed(opaqueEmbed(handle));
+                    if (handle) |h| self.freeEmbedHandle(h);
                 },
                 else => {},
             }
@@ -252,6 +266,35 @@ pub const Server = struct {
                 self.allocator.destroy(handle);
                 return;
             }
+        }
+    }
+
+    fn findEmbedHandleById(self: *Server, embed_id: types.EmbedId) ?*EmbedHandle {
+        for (self.embed_handles.items) |handle| {
+            if (handle.embed_id == embed_id) return handle;
+        }
+        return null;
+    }
+
+    fn freeEmbedHandle(self: *Server, handle: *EmbedHandle) void {
+        handle.destroyed = true;
+        for (self.embed_handles.items, 0..) |candidate, i| {
+            if (candidate == handle) {
+                _ = self.embed_handles.swapRemove(i);
+                self.allocator.destroy(handle);
+                return;
+            }
+        }
+        self.allocator.destroy(handle);
+    }
+
+    fn markEmbedDestroyed(self: *Server, embed_id: types.EmbedId) void {
+        if (self.findEmbedHandleById(embed_id)) |handle| handle.destroyed = true;
+    }
+
+    fn markClientEmbedsDestroyed(self: *Server, client_id: types.ClientId) void {
+        for (self.engine.model.embeds.items()) |embed| {
+            if (embed.client_id == client_id) self.markEmbedDestroyed(embed.id);
         }
     }
 
@@ -343,29 +386,51 @@ pub const Server = struct {
         return resource;
     }
 
+    pub fn notifySurfaceCreated(self: *Server, client_id: types.ClientId, surface_id: types.SurfaceId) void {
+        const handle = self.findClientHandleById(client_id);
+        const surface = self.upstreamSurfaceForId(surface_id);
+        self.host.onSurfaceCreated(opaqueClient(handle), surface);
+    }
+
+    pub fn resourceDestroyed(self: *Server, data: *ResourceData) void {
+        if (data.kind == .surface) {
+            if (self.engine.surfaceForResource(data.resource_id)) |surface_id| {
+                if (self.engine.model.embed_by_child_surface.get(surface_id)) |embed_id| {
+                    self.destroyEmbed(embed_id) catch {};
+                }
+                engine_surface.surfaceDestroy(&self.engine.model, surface_id);
+            }
+        }
+        self.engine.resourceDestroy(data.resource_id);
+    }
+
     pub fn embedAttach(
         self: *Server,
         handle: *ClientHandle,
         parent_surface: *wlp.wl_surface,
         child_surface: *wlp.wl_surface,
-    ) bool {
-        if (handle.server != self) return false;
-        if (handle.close_pending) return false;
-        if (self.activeEmbedForClient(handle.client_id) != null) return false;
-        const subcompositor = self.host.getSubcompositor() orelse return false;
+        out_handle: *?*EmbedHandle,
+    ) u32 {
+        out_handle.* = null;
+        if (handle.server != self) return c_api.embed_status_invalid_argument;
+        if (handle.close_pending) return c_api.embed_status_client_closing;
+        if (self.activeEmbedForClient(handle.client_id) != null) return c_api.embed_status_already_embedded;
+        const subcompositor = self.host.getSubcompositor() orelse return c_api.embed_status_unsupported;
 
-        const child_resource_id = self.engine.resourceForUpstreamProxy(@ptrCast(child_surface)) orelse return false;
-        const child_surface_id = self.engine.surfaceForResource(child_resource_id) orelse return false;
-        const child_role = self.engine.surfaceRole(child_surface_id) orelse return false;
-        if (child_role != .none) return false;
+        const child_resource_id = self.engine.resourceForUpstreamProxy(@ptrCast(child_surface)) orelse return c_api.embed_status_unknown_surface;
+        const child_surface_id = self.engine.surfaceForResource(child_resource_id) orelse return c_api.embed_status_unknown_surface;
+        const child_role = self.engine.surfaceRole(child_surface_id) orelse return c_api.embed_status_unknown_surface;
+        if (child_role != .none) return c_api.embed_status_surface_has_role;
 
         var parent_resource_id: ?types.ResourceId = null;
         var parent_surface_id: ?types.SurfaceId = null;
         var subsurface: ?*wlp.wl_subsurface = null;
         var subsurface_resource_id: ?types.ResourceId = null;
         var embed_id: ?types.EmbedId = null;
+        var pending_embed_handle: ?*EmbedHandle = null;
         var success = false;
         defer if (!success) {
+            if (pending_embed_handle) |embed_handle| self.freeEmbedHandle(embed_handle);
             self.rollbackEmbedAttach(
                 parent_resource_id,
                 parent_surface_id,
@@ -380,38 +445,51 @@ pub const Server = struct {
             .surface,
             null,
             @ptrCast(parent_surface),
-        ) catch return false;
+        ) catch return c_api.embed_status_upstream_failed;
         parent_surface_id = engine_surface.surfaceCreate(
             &self.engine.model,
             handle.client_id,
             parent_resource_id.?,
-        ) catch return false;
+        ) catch return c_api.embed_status_upstream_failed;
 
-        subsurface = wlc.c.wl_subcompositor_get_subsurface(subcompositor, child_surface, parent_surface) orelse return false;
+        subsurface = wlc.c.wl_subcompositor_get_subsurface(subcompositor, child_surface, parent_surface) orelse return c_api.embed_status_upstream_failed;
         subsurface_resource_id = self.engine.resourceCreate(
             handle.client_id,
             .subsurface,
             null,
             @ptrCast(subsurface.?),
-        ) catch return false;
+        ) catch return c_api.embed_status_upstream_failed;
 
-        embed_id = self.engine.embedCreate(handle.client_id, parent_surface_id.?) catch return false;
-        self.engine.embedAttachChild(embed_id.?, child_surface_id) catch return false;
-        self.engine.embedSetSubsurfaceResource(embed_id.?, subsurface_resource_id.?) catch return false;
-        self.engine.surfaceAssignRole(child_surface_id, .subsurface) catch return false;
+        embed_id = self.engine.embedCreate(handle.client_id, parent_surface_id.?) catch return c_api.embed_status_upstream_failed;
+        self.engine.embedAttachChild(embed_id.?, child_surface_id) catch return c_api.embed_status_upstream_failed;
+        self.engine.embedSetSubsurfaceResource(embed_id.?, subsurface_resource_id.?) catch return c_api.embed_status_upstream_failed;
+        self.engine.surfaceAssignRole(child_surface_id, .subsurface) catch return c_api.embed_status_surface_has_role;
+        const embed_handle = self.allocator.create(EmbedHandle) catch return c_api.embed_status_upstream_failed;
+        embed_handle.* = .{
+            .server = self,
+            .embed_id = embed_id.?,
+            .client_id = handle.client_id,
+        };
+        pending_embed_handle = embed_handle;
+        self.embed_handles.append(self.allocator, embed_handle) catch return c_api.embed_status_upstream_failed;
         self.applyEmbedOffset(handle, embed_id.?);
-        self.engine.embedMap(embed_id.?) catch return false;
+        self.engine.embedMap(embed_id.?) catch return c_api.embed_status_upstream_failed;
         success = true;
-        return true;
+        pending_embed_handle = null;
+        out_handle.* = embed_handle;
+        return c_api.embed_status_ok;
     }
 
-    pub fn embedResize(self: *Server, handle: *ClientHandle, width: i32, height: i32) bool {
-        if (handle.server != self) return false;
-        if (handle.close_pending) return false;
-        const embed_id = self.activeEmbedForClient(handle.client_id) orelse return false;
-        self.engine.embedResize(embed_id, width, height) catch return false;
-        self.applyEmbedOffset(handle, embed_id);
-        return true;
+    pub fn embedResize(self: *Server, handle: *EmbedHandle, width: i32, height: i32) u32 {
+        if (handle.server != self) return c_api.embed_status_invalid_argument;
+        if (handle.destroyed) return c_api.embed_status_unknown_embed;
+        if (width < 0 or height < 0) return c_api.embed_status_invalid_argument;
+        const client_handle = self.findClientHandleById(handle.client_id) orelse return c_api.embed_status_client_closing;
+        if (client_handle.close_pending) return c_api.embed_status_client_closing;
+        if (!self.engine.model.embeds.contains(handle.embed_id)) return c_api.embed_status_unknown_embed;
+        self.engine.embedResize(handle.embed_id, width, height) catch return c_api.embed_status_upstream_failed;
+        self.applyEmbedOffset(client_handle, handle.embed_id);
+        return c_api.embed_status_ok;
     }
 
     fn activeEmbedForClient(self: *Server, client_id: types.ClientId) ?types.EmbedId {
@@ -440,6 +518,25 @@ pub const Server = struct {
         }
         if (parent_surface_id) |surface_id| engine_surface.surfaceDestroy(&self.engine.model, surface_id);
         if (parent_resource_id) |resource_id| self.engine.resourceDestroy(resource_id);
+    }
+
+    fn destroyEmbed(self: *Server, embed_id: types.EmbedId) !void {
+        const embed = self.engine.model.embeds.get(embed_id) orelse return;
+        self.markEmbedDestroyed(embed_id);
+
+        if (embed.subsurface_resource_id != .null_id) {
+            if (self.engine.upstreamProxyForResource(embed.subsurface_resource_id)) |proxy| {
+                wlc.c.wl_subsurface_destroy(@ptrCast(proxy));
+            }
+            self.engine.resourceDestroy(embed.subsurface_resource_id);
+        }
+        if (embed.host_parent_surface_id != .null_id) {
+            if (self.engine.model.surfaces.get(embed.host_parent_surface_id)) |parent| {
+                engine_surface.surfaceDestroy(&self.engine.model, embed.host_parent_surface_id);
+                self.engine.resourceDestroy(parent.resource_id);
+            }
+        }
+        try self.engine.embedDestroy(embed_id);
     }
 
     fn releaseClientOwnedUpstreams(self: *Server, client_id: types.ClientId) void {
@@ -561,8 +658,8 @@ fn opaqueClient(handle: ?*ClientHandle) ?*c_api.wayembed_client {
     return if (handle) |h| @ptrCast(h) else null;
 }
 
-fn embedIdInt(embed_id: types.EmbedId) u32 {
-    return @intFromEnum(embed_id);
+fn opaqueEmbed(handle: ?*EmbedHandle) ?*c_api.wayembed_embed {
+    return if (handle) |h| @ptrCast(h) else null;
 }
 
 const runtime_helpers = protocol_runtime.Helpers(Server, ResourceData);
@@ -690,28 +787,28 @@ fn recordProtocolError(
     state.calls += 1;
 }
 
-fn recordEmbedMapped(userdata: ?*anyopaque, embed_id: u32) callconv(.c) void {
+fn recordEmbedMapped(userdata: ?*anyopaque, embed: ?*c_api.wayembed_embed) callconv(.c) void {
     const state: *EmbedCallbackTestState = @ptrCast(@alignCast(userdata.?));
-    state.mapped_id = embed_id;
+    state.mapped_id = c_api.wayembed_embed_id(embed);
     state.mapped_calls += 1;
 }
 
 fn recordEmbedResized(
     userdata: ?*anyopaque,
-    embed_id: u32,
+    embed: ?*c_api.wayembed_embed,
     width: i32,
     height: i32,
 ) callconv(.c) void {
     const state: *EmbedCallbackTestState = @ptrCast(@alignCast(userdata.?));
-    state.resized_id = embed_id;
+    state.resized_id = c_api.wayembed_embed_id(embed);
     state.width = width;
     state.height = height;
     state.resized_calls += 1;
 }
 
-fn recordEmbedDestroyed(userdata: ?*anyopaque, embed_id: u32) callconv(.c) void {
+fn recordEmbedDestroyed(userdata: ?*anyopaque, embed: ?*c_api.wayembed_embed) callconv(.c) void {
     const state: *EmbedCallbackTestState = @ptrCast(@alignCast(userdata.?));
-    state.destroyed_id = embed_id;
+    state.destroyed_id = c_api.wayembed_embed_id(embed);
     state.destroyed_calls += 1;
 }
 
@@ -887,6 +984,14 @@ test "embed lifecycle effects drain to host callbacks" {
     const s = try Server.create(std.testing.allocator, &iface, null);
     defer s.destroy();
 
+    const embed_handle = try s.allocator.create(EmbedHandle);
+    embed_handle.* = .{
+        .server = s,
+        .embed_id = @enumFromInt(9),
+        .client_id = .null_id,
+    };
+    try s.embed_handles.append(s.allocator, embed_handle);
+
     try s.engine.effects.push(.{ .embed_mapped = @enumFromInt(9) });
     try s.engine.effects.push(.{
         .embed_resized = .{
@@ -915,29 +1020,146 @@ test "server embed resize rejects negative sizes and closed handles" {
     defer s.destroy();
 
     const client_id = try s.engine.clientCreate(-1, -1);
-    var handle = ClientHandle{
+    const client_handle = try s.allocator.create(ClientHandle);
+    client_handle.* = .{
         .server = s,
         .client_id = client_id,
         .wl_client = null,
         .display = null,
     };
+    try s.client_handles.append(s.allocator, client_handle);
+    defer {
+        for (s.client_handles.items, 0..) |candidate, i| {
+            if (candidate == client_handle) {
+                _ = s.client_handles.swapRemove(i);
+                break;
+            }
+        }
+        s.allocator.destroy(client_handle);
+    }
     const parent_resource_id = try s.engine.resourceCreate(client_id, .surface, null, null);
     const parent_surface_id = try s.engine.surfaceCreate(client_id, parent_resource_id);
     const embed_id = try s.engine.embedCreate(client_id, parent_surface_id);
     try s.engine.embedMap(embed_id);
     s.engine.effects.clear();
+    var embed_handle = EmbedHandle{
+        .server = s,
+        .embed_id = embed_id,
+        .client_id = client_id,
+    };
 
-    try std.testing.expect(!s.embedResize(&handle, -1, 10));
-    try std.testing.expect(!s.embedResize(&handle, 10, -1));
+    try std.testing.expectEqual(c_api.embed_status_invalid_argument, s.embedResize(&embed_handle, -1, 10));
+    try std.testing.expectEqual(c_api.embed_status_invalid_argument, s.embedResize(&embed_handle, 10, -1));
     try std.testing.expectEqual(@as(usize, 0), s.engine.effects.count());
 
-    try std.testing.expect(s.embedResize(&handle, 0, 0));
+    try std.testing.expectEqual(c_api.embed_status_ok, s.embedResize(&embed_handle, 0, 0));
     const embed = s.engine.model.embeds.get(embed_id).?;
     try std.testing.expectEqual(@as(i32, 0), embed.width);
     try std.testing.expectEqual(@as(i32, 0), embed.height);
 
-    handle.close_pending = true;
-    try std.testing.expect(!s.embedResize(&handle, 1, 1));
+    client_handle.close_pending = true;
+    try std.testing.expectEqual(c_api.embed_status_client_closing, s.embedResize(&embed_handle, 1, 1));
+}
+
+test "server embed attach reports early status failures" {
+    var state = RegistryTestState{};
+    const iface = testHostInterface(&state);
+    const s = try Server.create(std.testing.allocator, &iface, null);
+    defer s.destroy();
+
+    const client_id = try s.engine.clientCreate(-1, -1);
+    var client_handle = ClientHandle{
+        .server = s,
+        .client_id = client_id,
+        .wl_client = null,
+        .display = null,
+    };
+    var out: ?*EmbedHandle = null;
+    try std.testing.expectEqual(
+        c_api.embed_status_unsupported,
+        s.embedAttach(&client_handle, fakeSurface(0x1000), fakeSurface(0x2000), &out),
+    );
+
+    client_handle.close_pending = true;
+    try std.testing.expectEqual(
+        c_api.embed_status_client_closing,
+        s.embedAttach(&client_handle, fakeSurface(0x1000), fakeSurface(0x2000), &out),
+    );
+
+    client_handle.close_pending = false;
+    const parent_resource_id = try s.engine.resourceCreate(client_id, .surface, null, null);
+    const parent_surface_id = try s.engine.surfaceCreate(client_id, parent_resource_id);
+    _ = try s.engine.embedCreate(client_id, parent_surface_id);
+    try std.testing.expectEqual(
+        c_api.embed_status_already_embedded,
+        s.embedAttach(&client_handle, fakeSurface(0x1000), fakeSurface(0x2000), &out),
+    );
+}
+
+test "embedded child surface destroy emits callback and clears active embed" {
+    var state = EmbedCallbackTestState{};
+    const iface = c_api.WayembedHostInterface{
+        .size = @sizeOf(c_api.WayembedHostInterface),
+        .version = c_api.abi_version,
+        .userdata = &state,
+        .get_compositor = null,
+        .get_subcompositor = null,
+        .get_shm = null,
+        .get_seat = null,
+        .get_xdg_wm_base = null,
+        .get_dmabuf = null,
+        .get_seat_capabilities = null,
+        .get_seat_name = null,
+        .get_output_info = null,
+        .get_subsurface_offset = null,
+        .on_client_connected = null,
+        .on_surface_created = null,
+        .on_client_closed = null,
+        .on_protocol_error = null,
+        .on_embed_mapped = null,
+        .on_embed_resized = null,
+        .on_embed_destroyed = recordEmbedDestroyed,
+    };
+    const s = try Server.create(std.testing.allocator, &iface, null);
+    defer s.destroy();
+
+    const client_id = try s.engine.clientCreate(-1, -1);
+    const child_resource_id = try s.engine.resourceCreate(client_id, .surface, null, null);
+    const child_surface_id = try s.engine.surfaceCreate(client_id, child_resource_id);
+    const parent_resource_id = try s.engine.resourceCreate(client_id, .surface, null, null);
+    const parent_surface_id = try s.engine.surfaceCreate(client_id, parent_resource_id);
+    const subsurface_resource_id = try s.engine.resourceCreate(client_id, .subsurface, null, null);
+    const embed_id = try s.engine.embedCreate(client_id, parent_surface_id);
+    try s.engine.embedAttachChild(embed_id, child_surface_id);
+    try s.engine.embedSetSubsurfaceResource(embed_id, subsurface_resource_id);
+    try s.engine.surfaceAssignRole(child_surface_id, .subsurface);
+
+    const embed_handle = try s.allocator.create(EmbedHandle);
+    embed_handle.* = .{
+        .server = s,
+        .embed_id = embed_id,
+        .client_id = client_id,
+    };
+    try s.embed_handles.append(s.allocator, embed_handle);
+
+    var data = ResourceData{
+        .server = s,
+        .client_id = client_id,
+        .resource_id = child_resource_id,
+        .wl_resource = @ptrFromInt(@alignOf(wls.wl_resource)),
+        .kind = .surface,
+        .upstream_proxy = null,
+    };
+    s.resourceDestroyed(&data);
+    try std.testing.expect(s.activeEmbedForClient(client_id) == null);
+    try std.testing.expect(!s.engine.model.surfaces.contains(child_surface_id));
+    try std.testing.expect(!s.engine.model.surfaces.contains(parent_surface_id));
+    try std.testing.expect(!s.engine.model.resources.contains(subsurface_resource_id));
+
+    s.dispatch();
+    try std.testing.expectEqual(@as(u32, 1), state.destroyed_calls);
+    try std.testing.expectEqual(@intFromEnum(embed_id), state.destroyed_id);
+    try std.testing.expectEqual(@as(usize, 0), s.embed_handles.items.len);
 }
 
 test "server registers only host-supplied globals" {

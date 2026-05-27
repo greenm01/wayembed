@@ -76,10 +76,7 @@ pub const Engine = struct {
     }
 
     pub fn surfaceCreate(self: *Engine, client_id: types.ClientId, resource_id: types.ResourceId) !types.SurfaceId {
-        const id = try surface.surfaceCreate(&self.model, client_id, resource_id);
-        errdefer surface.surfaceDestroy(&self.model, id);
-        try self.effects.push(.{ .surface_created = .{ .client_id = client_id, .surface_id = id } });
-        return id;
+        return surface.surfaceCreate(&self.model, client_id, resource_id);
     }
 
     pub fn surfaceForResource(self: *const Engine, resource_id: types.ResourceId) ?types.SurfaceId {

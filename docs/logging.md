@@ -16,7 +16,7 @@ as callbacks.
 
 The `wayembed_host_interface` struct carries lifecycle and diagnostics
 callbacks. They fire synchronously from inside `wayembed_server_dispatch()`
-after the effect queue drains. A null function pointer is a no-op.
+unless noted. A null function pointer is a no-op.
 
 ```c
 void (*on_client_connected)(void *userdata, wayembed_client *client);
@@ -31,8 +31,9 @@ void (*on_surface_created)(void *userdata,
                            struct wl_surface *plugin_child_surface);
 ```
 
-Fires when the plugin calls `wl_compositor.create_surface`. The host
-typically calls `wayembed_embed_attach` here to parent the surface.
+Fires inline while handling `wl_compositor.create_surface`. The host typically
+calls `wayembed_embed_attach` here to parent the surface before later batched
+plugin requests run.
 
 ```c
 void (*on_client_closed)(void *userdata, wayembed_client *client);
@@ -55,15 +56,15 @@ surface as `WL_DISPLAY_ERROR_INVALID_METHOD`, and unexpected missing host
 objects during bind surface as `WL_DISPLAY_ERROR_IMPLEMENTATION`.
 
 ```c
-void (*on_embed_mapped)(void *userdata, uint32_t embed_id);
+void (*on_embed_mapped)(void *userdata, wayembed_embed *embed);
 ```
 
 Fires after `wayembed_embed_attach` establishes the parent/child/subsurface
-relationship. `embed_id` is stable for the server lifetime and is not reused.
+relationship. Use `wayembed_embed_id(embed)` for a stable log id.
 
 ```c
 void (*on_embed_resized)(void *userdata,
-                         uint32_t embed_id,
+                         wayembed_embed *embed,
                          int32_t width,
                          int32_t height);
 ```
@@ -71,11 +72,12 @@ void (*on_embed_resized)(void *userdata,
 Fires when `wayembed_embed_resize` updates an existing embed.
 
 ```c
-void (*on_embed_destroyed)(void *userdata, uint32_t embed_id);
+void (*on_embed_destroyed)(void *userdata, wayembed_embed *embed);
 ```
 
 Fires before the owning client's `on_client_closed` callback when teardown
-destroys that client's embeds.
+destroys that client's embeds. The embed handle is valid until this callback
+returns.
 
 ### Constraints
 
@@ -85,9 +87,9 @@ destroys that client's embeds.
   establish the embedded editor session. Other same-server calls from
   callbacks are undefined.
 - Callbacks may issue Wayland calls on the host's own upstream connection.
-- The engine drains its effect queue at the end of each dispatch tick, after
-  every protocol callback for that tick has run. See [Architecture §
-  Host Notifications](architecture.md#host-notifications).
+- Most lifecycle callbacks come from the effect queue at the end of a dispatch
+  tick. `on_surface_created` is the exception because hosts must attach before
+  later batched surface requests run.
 
 ## Snapshot API
 
@@ -143,7 +145,17 @@ static void on_surface_created(void *u, wayembed_client *client,
     struct my_host *h = u;
     fprintf(h->log, "plugin surface: client=%p surface=%p\n",
             (void *)client, (void *)child);
-    wayembed_embed_attach(client, h->editor_parent_surface, child);
+    wayembed_embed_attach_info info = {
+        .size = sizeof(info),
+        .version = WAYEMBED_ABI_VERSION,
+        .client = client,
+        .parent_surface = h->editor_parent_surface,
+        .child_surface = child,
+    };
+    wayembed_embed *embed = NULL;
+    uint32_t status = wayembed_embed_attach(&info, &embed);
+    fprintf(h->log, "embed attach: status=%u embed=%u\n",
+            status, wayembed_embed_id(embed));
 }
 
 static void on_client_closed(void *u, wayembed_client *client) {
@@ -171,10 +183,9 @@ diagnostics_dirty
 ```
 
 `protocol_error` is surfaced through `on_protocol_error`. Embed lifecycle
-effects are surfaced through the embed callbacks, keyed on embed id (a stable
-`uint32_t` that is not reused in a server's lifetime). For a normal plugin
-disconnect, `embed_destroyed` is delivered before `client_closed` for the
-owning client.
+effects are surfaced through the embed callbacks. Use `wayembed_embed_id()` to
+key log lines. For a normal plugin disconnect, `embed_destroyed` is delivered
+before `client_closed` for the owning client.
 
 ## Developer and Agent Debugging Evidence
 
@@ -216,7 +227,6 @@ delegate file and callback involved, e.g.:
 ```
 protocol/compositor.zig → wl_compositor_create_surface listener
 engine/surface.zig      → surfaceCreate op
-effects queue           → surface_created effect
 host callback           → on_surface_created
 ```
 

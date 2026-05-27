@@ -10,7 +10,7 @@ const server_mod = @import("server.zig");
 const wlc = @import("wayland/client.zig");
 const wlp = @import("wayland/protocols.zig");
 
-pub const abi_version: u32 = 1;
+pub const abi_version: u32 = 2;
 pub const adapter_abi_version: u32 = 1;
 pub const adapter_format_unknown: u32 = 0;
 pub const adapter_format_clap: u32 = 1;
@@ -40,6 +40,15 @@ const compiled_features: u64 =
     feature_touch |
     feature_output |
     feature_xdg_shell;
+pub const embed_status_ok: u32 = 0;
+pub const embed_status_invalid_argument: u32 = 1;
+pub const embed_status_client_closing: u32 = 2;
+pub const embed_status_already_embedded: u32 = 3;
+pub const embed_status_unknown_surface: u32 = 4;
+pub const embed_status_surface_has_role: u32 = 5;
+pub const embed_status_unsupported: u32 = 6;
+pub const embed_status_upstream_failed: u32 = 7;
+pub const embed_status_unknown_embed: u32 = 8;
 
 /// Opaque to C callers; really `server_mod.Server` on the Zig side.
 pub const wayembed_server = opaque {};
@@ -47,6 +56,9 @@ pub const wayembed_server = opaque {};
 /// Opaque per-client handle the host receives via lifecycle callbacks
 /// and passes back into `wayembed_embed_*` operations.
 pub const wayembed_client = opaque {};
+
+/// Opaque server-owned embedded session handle.
+pub const wayembed_embed = opaque {};
 
 /// Opaque caller-owned snapshot handle.
 pub const wayembed_snapshot = opaque {};
@@ -86,6 +98,14 @@ pub const WayembedFeatures = extern struct {
     size: u32,
     version: u32,
     flags: u64,
+};
+
+pub const WayembedEmbedAttachInfo = extern struct {
+    size: u32,
+    version: u32,
+    client: ?*wayembed_client,
+    parent_surface: ?*wlp.wl_surface,
+    child_surface: ?*wlp.wl_surface,
 };
 
 pub const WayembedAdapterHandoff = extern struct {
@@ -142,9 +162,9 @@ pub const WayembedHostInterface = extern struct {
     on_surface_created: ?*const fn (?*anyopaque, ?*wayembed_client, ?*wlp.wl_surface) callconv(.c) void,
     on_client_closed: ?*const fn (?*anyopaque, ?*wayembed_client) callconv(.c) void,
     on_protocol_error: ?*const fn (?*anyopaque, ?*wayembed_client, u32) callconv(.c) void,
-    on_embed_mapped: ?*const fn (?*anyopaque, u32) callconv(.c) void,
-    on_embed_resized: ?*const fn (?*anyopaque, u32, i32, i32) callconv(.c) void,
-    on_embed_destroyed: ?*const fn (?*anyopaque, u32) callconv(.c) void,
+    on_embed_mapped: ?*const fn (?*anyopaque, ?*wayembed_embed) callconv(.c) void,
+    on_embed_resized: ?*const fn (?*anyopaque, ?*wayembed_embed, i32, i32) callconv(.c) void,
+    on_embed_destroyed: ?*const fn (?*anyopaque, ?*wayembed_embed) callconv(.c) void,
 
     get_seat_capabilities: ?*const fn (?*anyopaque) callconv(.c) u32,
     get_seat_name: ?*const fn (?*anyopaque) callconv(.c) ?[*:0]const u8,
@@ -390,29 +410,58 @@ export fn wayembed_server_destroy_proxy(
     _ = proxy;
 }
 
-export fn wayembed_embed_attach(
-    client: ?*wayembed_client,
-    parent_surface: ?*wlp.wl_surface,
-    child_surface: ?*wlp.wl_surface,
-) callconv(.c) bool {
-    const c = clientHandle(client) orelse return false;
-    const parent = parent_surface orelse return false;
-    const child = child_surface orelse return false;
-    return c.server.embedAttach(c, parent, child);
+pub export fn wayembed_embed_attach(
+    info: ?*const WayembedEmbedAttachInfo,
+    out_embed: ?*?*wayembed_embed,
+) callconv(.c) u32 {
+    const out = out_embed orelse return embed_status_invalid_argument;
+    out.* = null;
+    const attach_info = info orelse return embed_status_invalid_argument;
+    if (attach_info.size < @sizeOf(WayembedEmbedAttachInfo)) return embed_status_invalid_argument;
+    if (attach_info.version != abi_version) return embed_status_invalid_argument;
+    const c = clientHandle(attach_info.client) orelse return embed_status_invalid_argument;
+    const parent = attach_info.parent_surface orelse return embed_status_invalid_argument;
+    const child = attach_info.child_surface orelse return embed_status_invalid_argument;
+    var handle: ?*server_mod.EmbedHandle = null;
+    const status = c.server.embedAttach(c, parent, child, &handle);
+    if (status == embed_status_ok) {
+        out.* = @ptrCast(handle.?);
+    }
+    return status;
 }
 
-export fn wayembed_embed_resize(
-    client: ?*wayembed_client,
+pub export fn wayembed_embed_resize(
+    embed: ?*wayembed_embed,
     width: i32,
     height: i32,
-) callconv(.c) bool {
-    const c = clientHandle(client) orelse return false;
-    return c.server.embedResize(c, width, height);
+) callconv(.c) u32 {
+    const e = embedHandle(embed) orelse return embed_status_invalid_argument;
+    return e.server.embedResize(e, width, height);
+}
+
+pub export fn wayembed_embed_id(embed: ?*const wayembed_embed) callconv(.c) u32 {
+    const e = embedHandleConst(embed) orelse return 0;
+    return @intFromEnum(e.embed_id);
+}
+
+pub export fn wayembed_embed_client(embed: ?*const wayembed_embed) callconv(.c) ?*wayembed_client {
+    const e = embedHandleConst(embed) orelse return null;
+    return e.server.opaqueClientForId(e.client_id);
 }
 
 fn clientHandle(client: ?*wayembed_client) ?*server_mod.ClientHandle {
     const c = client orelse return null;
     return @ptrCast(@alignCast(c));
+}
+
+fn embedHandle(embed: ?*wayembed_embed) ?*server_mod.EmbedHandle {
+    const e = embed orelse return null;
+    return @ptrCast(@alignCast(e));
+}
+
+fn embedHandleConst(embed: ?*const wayembed_embed) ?*const server_mod.EmbedHandle {
+    const e = embed orelse return null;
+    return @ptrCast(@alignCast(e));
 }
 
 fn snapshotHandle(snapshot: ?*wayembed_snapshot) ?*SnapshotHandle {
@@ -436,7 +485,7 @@ fn adapterToken(format: u32) ?[*:0]const u8 {
 // ===== production code above =====
 
 test "ABI version is stable" {
-    try std.testing.expectEqual(@as(u32, 1), wayembed_abi_version());
+    try std.testing.expectEqual(@as(u32, 2), wayembed_abi_version());
     try std.testing.expectEqual(@as(u32, 1), wayembed_adapter_abi_version());
 }
 
@@ -448,6 +497,10 @@ test "Server null-handle is tolerated" {
     wayembed_snapshot_free(null);
     try std.testing.expect(!wayembed_snapshot_get_counts(null, null));
     try std.testing.expect(!wayembed_get_features(null));
+    try std.testing.expectEqual(embed_status_invalid_argument, wayembed_embed_attach(null, null));
+    try std.testing.expectEqual(embed_status_invalid_argument, wayembed_embed_resize(null, 0, 0));
+    try std.testing.expectEqual(@as(u32, 0), wayembed_embed_id(null));
+    try std.testing.expect(wayembed_embed_client(null) == null);
 }
 
 test "feature query validates size and version" {

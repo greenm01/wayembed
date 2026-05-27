@@ -264,11 +264,14 @@ Rules:
 
 - Callbacks return `void`. They report; they do not gate. Policy decisions
   belong in `src/engine/` and run before the notification fires.
-- Callbacks must not call back into the same `wayembed_server` instance.
-  They may issue Wayland calls on the host's own upstream connection.
+- Only `on_surface_created` may call back into the same `wayembed_server`
+  instance, and only to attach the new embed. Other callbacks may issue
+  Wayland calls on the host's own upstream connection.
 - A null function pointer in the host interface is a no-op.
-- The engine drains its effect queue at the end of each dispatch tick, after
-  every protocol callback for that tick has run.
+- Most host notifications come from the effect queue at the end of each
+  dispatch tick. `on_surface_created` fires inline during
+  `wl_compositor.create_surface` so the host can attach before later batched
+  surface requests run.
 
 ## Event Flow
 

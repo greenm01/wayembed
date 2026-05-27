@@ -25,6 +25,7 @@ struct zwp_linux_dmabuf_v1;
 
 typedef struct wayembed_server wayembed_server;
 typedef struct wayembed_client wayembed_client;
+typedef struct wayembed_embed wayembed_embed;
 typedef struct wayembed_resource wayembed_resource;
 
 typedef struct wayembed_output_info {
@@ -74,12 +75,12 @@ typedef struct wayembed_host_interface {
     void (*on_protocol_error)(void *userdata,
                               wayembed_client *client,
                               uint32_t code);
-    void (*on_embed_mapped)(void *userdata, uint32_t embed_id);
+    void (*on_embed_mapped)(void *userdata, wayembed_embed *embed);
     void (*on_embed_resized)(void *userdata,
-                             uint32_t embed_id,
+                             wayembed_embed *embed,
                              int32_t width,
                              int32_t height);
-    void (*on_embed_destroyed)(void *userdata, uint32_t embed_id);
+    void (*on_embed_destroyed)(void *userdata, wayembed_embed *embed);
 
     uint32_t (*get_seat_capabilities)(void *userdata);
     const char *(*get_seat_name)(void *userdata);

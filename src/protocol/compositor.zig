@@ -55,6 +55,8 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
                 wls.c.wl_resource_destroy(surface_resource);
                 return;
             };
+            const surface_id = data.server.engine.surfaceForResource(surface_data.resource_id) orelse return;
+            data.server.notifySurfaceCreated(data.client_id, surface_id);
         }
 
         fn compositorCreateRegion(client: ?*wls.wl_client, resource: ?*wls.wl_resource, id: u32) callconv(.c) void {

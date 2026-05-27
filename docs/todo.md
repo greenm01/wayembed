@@ -37,9 +37,8 @@ current Phase 2 embedded UI path are complete:
   can receive scale and mode information.
 - `wl_touch` forwards multi-touch streams from host-provided seats, including
   embedded-surface coordinate translation.
-- the embedded editor session lifecycle is formalized around
-  client-scoped attach, resize, and teardown, with attach allowed from
-  `on_surface_created`.
+- the embedded editor session lifecycle is formalized around explicit
+  `wayembed_embed *` handles, with attach allowed from `on_surface_created`.
 - Phase 3 has a dependency-free experimental adapter contract for CLAP/LV2
   handoff tokens and validated display/resize structs.
 - GitHub Actions runs the pinned Zig formatter, default test suite, and a

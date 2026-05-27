@@ -114,16 +114,16 @@ pub const Host = struct {
         if (self.iface.on_protocol_error) |f| f(self.iface.userdata, client, code);
     }
 
-    pub fn onEmbedMapped(self: Host, embed_id: u32) void {
-        if (self.iface.on_embed_mapped) |f| f(self.iface.userdata, embed_id);
+    pub fn onEmbedMapped(self: Host, embed: ?*c_api.wayembed_embed) void {
+        if (self.iface.on_embed_mapped) |f| f(self.iface.userdata, embed);
     }
 
-    pub fn onEmbedResized(self: Host, embed_id: u32, width: i32, height: i32) void {
-        if (self.iface.on_embed_resized) |f| f(self.iface.userdata, embed_id, width, height);
+    pub fn onEmbedResized(self: Host, embed: ?*c_api.wayembed_embed, width: i32, height: i32) void {
+        if (self.iface.on_embed_resized) |f| f(self.iface.userdata, embed, width, height);
     }
 
-    pub fn onEmbedDestroyed(self: Host, embed_id: u32) void {
-        if (self.iface.on_embed_destroyed) |f| f(self.iface.userdata, embed_id);
+    pub fn onEmbedDestroyed(self: Host, embed: ?*c_api.wayembed_embed) void {
+        if (self.iface.on_embed_destroyed) |f| f(self.iface.userdata, embed);
     }
 };
 
@@ -192,7 +192,7 @@ test "Host wraps a null-callback interface as no-op" {
     try std.testing.expectEqual(default_seat_capabilities, h.getSeatCapabilities());
     try std.testing.expectEqualStrings(default_seat_name, std.mem.span(h.getSeatName()));
     h.onClientConnected(null); // must not crash
-    h.onEmbedMapped(1); // must not crash
+    h.onEmbedMapped(null); // must not crash
 }
 
 fn noisySeatCapabilities(_: ?*anyopaque) callconv(.c) u32 {

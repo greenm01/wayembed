@@ -9,7 +9,7 @@ The host owns `wayembed_server *`. It comes from `wayembed_server_create()` and
 dies in `wayembed_server_destroy()`.
 
 Destroying the server invalidates every handle the server issued. That includes
-plugin displays, client handles, snapshots, and embed ids. Stop using them
+plugin displays, client handles, embed handles, and snapshots. Stop using them
 first. Then destroy the server.
 
 Wayembed never starts a thread. The host owns the event loop. Call
@@ -37,8 +37,8 @@ tear it down.
 It stays valid until `on_client_closed` fires. After that callback returns,
 the handle is dead.
 
-Do not store a client handle past close. Store it only to call
-`wayembed_embed_attach()` or `wayembed_embed_resize()` while the client lives.
+Do not store a client handle past close. Store it only to attach a new embed
+while the client lives.
 
 ## Surfaces, Buffers, And Resources
 
@@ -46,9 +46,11 @@ Plugin-created `wl_surface` and `wl_buffer` objects belong to the plugin
 protocol stream. Wayembed tracks them so it can forward requests and tear them
 down in order.
 
-The host sees a plugin child surface through `on_surface_created`. The host may
-pass that pointer to `wayembed_embed_attach()` during the callback. It must not
-destroy that surface.
+The host sees a plugin child surface through `on_surface_created`. That
+callback fires during `wl_compositor.create_surface()`, after wayembed has
+created the upstream surface and model row. The host may pass that pointer to
+`wayembed_embed_attach()` during the callback. It must not destroy that
+surface.
 
 Host parent surfaces stay host-owned. Wayembed borrows the parent pointer when
 it creates the embed wiring. Keep the parent alive until the embed dies or the
@@ -56,15 +58,20 @@ client closes.
 
 ## Embeds
 
-`wayembed_embed_attach()` starts one embedded session for the client. A client
-can have one active embed. `wayembed_embed_resize()` targets that active embed.
+`wayembed_embed_attach()` starts one embedded session for the client and returns
+a server-owned `wayembed_embed *`. A client can have one active embed.
+`wayembed_embed_resize()` targets that embed handle.
 
-Embed ids are stable for the server lifetime. They are useful in logs. They are
-not handles. Do not pass them back into the API, and do not assume they stay
-meaningful after `on_embed_destroyed`.
+Embed handles are valid until `on_embed_destroyed` returns, or until server
+destroy. `wayembed_embed_id()` returns a stable numeric id for logs. The id is
+not a handle.
 
 `on_embed_destroyed` fires before `on_client_closed` when client teardown
 destroys an active embed.
+
+If the plugin destroys the embedded child surface without closing the client,
+wayembed destroys that embed and fires `on_embed_destroyed`. The client may
+create another surface and attach a new embed later.
 
 ## Snapshots
 
@@ -87,8 +94,8 @@ points to static library storage. The caller must not free it.
 
 Callbacks fire from `wayembed_server_dispatch()`.
 
-One same-server call is allowed inside callbacks:
-`wayembed_embed_attach()` from `on_surface_created`.
+One same-server call is allowed inside callbacks: `wayembed_embed_attach()` from
+`on_surface_created`.
 
 Other same-server calls from callbacks are undefined. Host callbacks may still
 make Wayland calls on the host's own upstream connection.

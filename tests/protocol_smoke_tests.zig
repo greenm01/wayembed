@@ -159,6 +159,7 @@ const HostSmokeState = struct {
     output_scale: i32 = 1,
     xdg_wm_base: ?*wlp.xdg_wm_base = null,
     parent_surface: ?*wlp.wl_surface = null,
+    embed: std.atomic.Value(usize) = .init(0),
     surface_created_count: std.atomic.Value(u32) = .init(0),
     embed_attached: std.atomic.Value(bool) = .init(false),
     embed_mapped_count: std.atomic.Value(u32) = .init(0),
@@ -371,33 +372,42 @@ fn hostSurfaceCreated(
     child_surface: ?*wlp.wl_surface,
 ) callconv(.c) void {
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return));
-    const handle: *wayembed.server.ClientHandle = @ptrCast(@alignCast(client orelse return));
     const parent = state.parent_surface orelse return;
     const child = child_surface orelse return;
-    const attached = handle.server.embedAttach(handle, parent, child);
+    var info = wayembed.c_api.WayembedEmbedAttachInfo{
+        .size = @sizeOf(wayembed.c_api.WayembedEmbedAttachInfo),
+        .version = wayembed.c_api.abi_version,
+        .client = client,
+        .parent_surface = parent,
+        .child_surface = child,
+    };
+    var embed: ?*wayembed.c_api.wayembed_embed = null;
+    const status = wayembed.c_api.wayembed_embed_attach(&info, &embed);
+    const attached = status == wayembed.c_api.embed_status_ok and embed != null;
+    if (attached) state.embed.store(@intFromPtr(embed.?), .release);
     state.embed_attached.store(attached, .release);
     _ = state.surface_created_count.fetchAdd(1, .acq_rel);
 }
 
-fn hostEmbedMapped(userdata: ?*anyopaque, embed_id: u32) callconv(.c) void {
-    if (embed_id == 0) return;
+fn hostEmbedMapped(userdata: ?*anyopaque, embed: ?*wayembed.c_api.wayembed_embed) callconv(.c) void {
+    if (wayembed.c_api.wayembed_embed_id(embed) == 0) return;
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return));
     _ = state.embed_mapped_count.fetchAdd(1, .acq_rel);
 }
 
 fn hostEmbedResized(
     userdata: ?*anyopaque,
-    embed_id: u32,
+    embed: ?*wayembed.c_api.wayembed_embed,
     width: i32,
     height: i32,
 ) callconv(.c) void {
-    if (embed_id == 0 or width != 64 or height != 48) return;
+    if (wayembed.c_api.wayembed_embed_id(embed) == 0 or width != 64 or height != 48) return;
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return));
     _ = state.embed_resized_count.fetchAdd(1, .acq_rel);
 }
 
-fn hostEmbedDestroyed(userdata: ?*anyopaque, embed_id: u32) callconv(.c) void {
-    if (embed_id == 0) return;
+fn hostEmbedDestroyed(userdata: ?*anyopaque, embed: ?*wayembed.c_api.wayembed_embed) callconv(.c) void {
+    if (wayembed.c_api.wayembed_embed_id(embed) == 0) return;
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return));
     _ = state.embed_destroyed_count.fetchAdd(1, .acq_rel);
 }
@@ -718,16 +728,17 @@ fn runCompositorSmoke(spec: CompositorSmokeSpec) !void {
         try std.testing.expectEqual(host_registry_state.output_mode_height, plugin_registry_state.output_mode_height);
         try std.testing.expectEqual(host_registry_state.output_scale, plugin_registry_state.output_scale);
     }
-    const plugin_surface = wlc.wl_compositor_create_surface(plugin_registry_state.compositor.?) orelse return error.CreatePluginSurfaceFailed;
-    try flushDisplay(plugin_display);
-    try waitForSurfaceCreated(&host_state);
-
     const buffer = try createPluginBuffer(plugin_registry_state.shm.?);
+    const plugin_surface = wlc.wl_compositor_create_surface(plugin_registry_state.compositor.?) orelse return error.CreatePluginSurfaceFailed;
     wlc.wl_surface_attach(plugin_surface, buffer, 0, 0);
     wlc.wl_surface_damage(plugin_surface, 0, 0, 16, 16);
     wlc.wl_surface_commit(plugin_surface);
     try flushDisplay(plugin_display);
-    try std.testing.expect(server.embedResize(server.client_handles.items[0], 64, 48));
+    try waitForSurfaceCreated(&host_state);
+    const embed_ptr_int = host_state.embed.load(.acquire);
+    try std.testing.expect(embed_ptr_int != 0);
+    const embed: *wayembed.c_api.wayembed_embed = @ptrFromInt(embed_ptr_int);
+    try std.testing.expectEqual(wayembed.c_api.embed_status_ok, wayembed.c_api.wayembed_embed_resize(embed, 64, 48));
     try roundtripDisplay(plugin_display);
     try waitForEmbedCallbacks(&host_state);
 
