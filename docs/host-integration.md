@@ -10,6 +10,32 @@ of truth. This walkthrough is the validation harness for that ABI: anything
 awkward to write below is an ABI mistake that should be fixed before code
 lands.
 
+## Feature Discovery
+
+Hosts can ask which protocol delegates the library was built with before they
+create a server.
+
+```c
+wayembed_features features = {
+    .size = sizeof(features),
+    .version = WAYEMBED_ABI_VERSION,
+};
+
+if (!wayembed_get_features(&features)) {
+    return false;
+}
+
+bool can_embed_surfaces =
+    (features.flags & WAYEMBED_FEATURE_COMPOSITOR) &&
+    (features.flags & WAYEMBED_FEATURE_SUBCOMPOSITOR) &&
+    (features.flags & WAYEMBED_FEATURE_SURFACE) &&
+    (features.flags & WAYEMBED_FEATURE_SHM_BUFFER) &&
+    (features.flags & WAYEMBED_FEATURE_EMBED_SESSION);
+```
+
+Feature flags report compiled support. Host callbacks still decide which
+Wayland globals a server advertises to a plugin display.
+
 ## Shape of a Session
 
 ```text
@@ -342,6 +368,8 @@ wayembed_server_destroy(server);
 Destroy invalidates every handle the server issued, including
 `plugin_display` values and any `wayembed_client *` the host retained. The
 host must not call wayembed functions after destroy returns.
+
+For the full ownership contract, see [Lifetime Rules](lifetime.md).
 
 ## Embedded Session Contract
 

@@ -17,6 +17,29 @@ pub const adapter_format_clap: u32 = 1;
 pub const adapter_format_lv2: u32 = 2;
 const adapter_clap_token = "wayembed.experimental.clap.wayland";
 const adapter_lv2_token = "https://wayembed.org/ns/ext/wayland-ui";
+pub const feature_compositor: u64 = 1 << 0;
+pub const feature_subcompositor: u64 = 1 << 1;
+pub const feature_surface: u64 = 1 << 2;
+pub const feature_shm_buffer: u64 = 1 << 3;
+pub const feature_embed_session: u64 = 1 << 4;
+pub const feature_seat: u64 = 1 << 5;
+pub const feature_pointer: u64 = 1 << 6;
+pub const feature_keyboard: u64 = 1 << 7;
+pub const feature_touch: u64 = 1 << 8;
+pub const feature_output: u64 = 1 << 9;
+pub const feature_xdg_shell: u64 = 1 << 10;
+const compiled_features: u64 =
+    feature_compositor |
+    feature_subcompositor |
+    feature_surface |
+    feature_shm_buffer |
+    feature_embed_session |
+    feature_seat |
+    feature_pointer |
+    feature_keyboard |
+    feature_touch |
+    feature_output |
+    feature_xdg_shell;
 
 /// Opaque to C callers; really `server_mod.Server` on the Zig side.
 pub const wayembed_server = opaque {};
@@ -57,6 +80,12 @@ pub const WayembedOutputInfo = extern struct {
     scale: i32,
     name: ?[*:0]const u8,
     description: ?[*:0]const u8,
+};
+
+pub const WayembedFeatures = extern struct {
+    size: u32,
+    version: u32,
+    flags: u64,
 };
 
 pub const WayembedAdapterHandoff = extern struct {
@@ -194,6 +223,18 @@ fn copyHostField(
 
 export fn wayembed_abi_version() callconv(.c) u32 {
     return abi_version;
+}
+
+export fn wayembed_get_features(features: ?*WayembedFeatures) callconv(.c) bool {
+    const out = features orelse return false;
+    if (out.size < @sizeOf(WayembedFeatures)) return false;
+    if (out.version != abi_version) return false;
+    out.* = .{
+        .size = @sizeOf(WayembedFeatures),
+        .version = abi_version,
+        .flags = compiled_features,
+    };
+    return true;
 }
 
 export fn wayembed_adapter_abi_version() callconv(.c) u32 {
@@ -406,6 +447,30 @@ test "Server null-handle is tolerated" {
     try std.testing.expect(wayembed_server_snapshot(null) == null);
     wayembed_snapshot_free(null);
     try std.testing.expect(!wayembed_snapshot_get_counts(null, null));
+    try std.testing.expect(!wayembed_get_features(null));
+}
+
+test "feature query validates size and version" {
+    var features: WayembedFeatures = .{
+        .size = @sizeOf(WayembedFeatures),
+        .version = abi_version,
+        .flags = 0,
+    };
+
+    try std.testing.expect(wayembed_get_features(&features));
+    try std.testing.expectEqual(compiled_features, features.flags);
+    try std.testing.expect((features.flags & feature_compositor) != 0);
+    try std.testing.expect((features.flags & feature_surface) != 0);
+    try std.testing.expect((features.flags & feature_seat) != 0);
+    try std.testing.expect((features.flags & feature_xdg_shell) != 0);
+
+    features.size = @offsetOf(WayembedFeatures, "flags");
+    features.version = abi_version;
+    try std.testing.expect(!wayembed_get_features(&features));
+
+    features.size = @sizeOf(WayembedFeatures);
+    features.version = abi_version + 1;
+    try std.testing.expect(!wayembed_get_features(&features));
 }
 
 test "adapter handoff initialization validates inputs" {

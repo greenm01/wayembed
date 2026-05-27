@@ -1,0 +1,110 @@
+# Lifetime Rules
+
+Wayembed is small by design, but Wayland ownership is still sharp. This page
+states who owns each handle and when it dies. Treat it as part of the ABI.
+
+## Server
+
+The host owns `wayembed_server *`. It comes from `wayembed_server_create()` and
+dies in `wayembed_server_destroy()`.
+
+Destroying the server invalidates every handle the server issued. That includes
+plugin displays, client handles, snapshots, and embed ids. Stop using them
+first. Then destroy the server.
+
+Wayembed never starts a thread. The host owns the event loop. Call
+`wayembed_server_get_fd()`, watch that fd, call `wayembed_server_dispatch()`
+when it becomes readable, and call `wayembed_server_flush()` before blocking.
+
+## Host Objects
+
+The host owns the real Wayland objects returned by `wayembed_host_interface`:
+`wl_compositor`, `wl_subcompositor`, `wl_shm`, `wl_seat`, `xdg_wm_base`, and
+`wl_output` metadata. Wayembed borrows those pointers. It does not destroy
+them.
+
+Keep those objects alive for the life of the server, or stop exposing the
+matching callback before they disappear. A stale host object is a host bug.
+
+## Plugin Displays And Clients
+
+`wayembed_server_open_client_display()` returns a plugin-side `wl_display *`.
+The host passes that display to the plugin. The host closes it with
+`wayembed_server_close_client_display()`, or lets `wayembed_server_destroy()`
+tear it down.
+
+`wayembed_client *` is an opaque handle. The host receives it in callbacks.
+It stays valid until `on_client_closed` fires. After that callback returns,
+the handle is dead.
+
+Do not store a client handle past close. Store it only to call
+`wayembed_embed_attach()` or `wayembed_embed_resize()` while the client lives.
+
+## Surfaces, Buffers, And Resources
+
+Plugin-created `wl_surface` and `wl_buffer` objects belong to the plugin
+protocol stream. Wayembed tracks them so it can forward requests and tear them
+down in order.
+
+The host sees a plugin child surface through `on_surface_created`. The host may
+pass that pointer to `wayembed_embed_attach()` during the callback. It must not
+destroy that surface.
+
+Host parent surfaces stay host-owned. Wayembed borrows the parent pointer when
+it creates the embed wiring. Keep the parent alive until the embed dies or the
+client closes.
+
+## Embeds
+
+`wayembed_embed_attach()` starts one embedded session for the client. A client
+can have one active embed. `wayembed_embed_resize()` targets that active embed.
+
+Embed ids are stable for the server lifetime. They are useful in logs. They are
+not handles. Do not pass them back into the API, and do not assume they stay
+meaningful after `on_embed_destroyed`.
+
+`on_embed_destroyed` fires before `on_client_closed` when client teardown
+destroys an active embed.
+
+## Snapshots
+
+`wayembed_server_snapshot()` returns a copy. The caller owns it and must call
+`wayembed_snapshot_free()`.
+
+Snapshots do not update after creation. They remain valid until freed, even if
+the server changes. Destroying the server invalidates all server-issued handles,
+so free snapshots before server destroy.
+
+## Adapter Handoffs
+
+`wayembed_adapter_handoff` and `wayembed_adapter_resize` are caller-owned
+structs. Wayembed fills or validates them. It does not keep pointers to them.
+
+The display inside a handoff follows the plugin display rules. The token string
+points to static library storage. The caller must not free it.
+
+## Callback Re-Entry
+
+Callbacks fire from `wayembed_server_dispatch()`.
+
+One same-server call is allowed inside callbacks:
+`wayembed_embed_attach()` from `on_surface_created`.
+
+Other same-server calls from callbacks are undefined. Host callbacks may still
+make Wayland calls on the host's own upstream connection.
+
+## Teardown Order
+
+When a client closes, wayembed destroys its state in this order:
+
+1. embeds;
+2. plugin child surfaces;
+3. buffers and frame callbacks;
+4. remaining resources;
+5. resource indexes;
+6. Wayland client and display handles;
+7. socket fds;
+8. the client row.
+
+This keeps children ahead of parents. It also gives hosts a fixed order for
+logs and cleanup.

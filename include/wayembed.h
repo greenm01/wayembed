@@ -11,6 +11,18 @@ extern "C" {
 
 #define WAYEMBED_ABI_VERSION 1u
 
+#define WAYEMBED_FEATURE_COMPOSITOR (1ull << 0)
+#define WAYEMBED_FEATURE_SUBCOMPOSITOR (1ull << 1)
+#define WAYEMBED_FEATURE_SURFACE (1ull << 2)
+#define WAYEMBED_FEATURE_SHM_BUFFER (1ull << 3)
+#define WAYEMBED_FEATURE_EMBED_SESSION (1ull << 4)
+#define WAYEMBED_FEATURE_SEAT (1ull << 5)
+#define WAYEMBED_FEATURE_POINTER (1ull << 6)
+#define WAYEMBED_FEATURE_KEYBOARD (1ull << 7)
+#define WAYEMBED_FEATURE_TOUCH (1ull << 8)
+#define WAYEMBED_FEATURE_OUTPUT (1ull << 9)
+#define WAYEMBED_FEATURE_XDG_SHELL (1ull << 10)
+
 struct wl_compositor;
 struct wl_display;
 struct wl_event_queue;
@@ -58,6 +70,12 @@ typedef struct wayembed_snapshot_counts {
     size_t outputs;
 } wayembed_snapshot_counts;
 
+typedef struct wayembed_features {
+    uint32_t size;
+    uint32_t version;
+    uint64_t flags;
+} wayembed_features;
+
 typedef struct wayembed_host_interface {
     uint32_t size;
     uint32_t version;
@@ -99,38 +117,47 @@ typedef struct wayembed_host_interface {
 
 uint32_t wayembed_abi_version(void);
 
-wayembed_server *wayembed_server_create(const wayembed_host_interface *host,
-                                      struct wl_event_queue *queue);
+/* Reports the protocol features compiled into this build. */
+bool wayembed_get_features(wayembed_features *features);
 
+/* Creates a server. The caller owns the returned handle. */
+wayembed_server *wayembed_server_create(const wayembed_host_interface *host,
+                                        struct wl_event_queue *queue);
+
+/* Destroys the server and invalidates every handle it issued. */
 void wayembed_server_destroy(wayembed_server *server);
 
 int wayembed_server_get_fd(wayembed_server *server);
 void wayembed_server_dispatch(wayembed_server *server);
 void wayembed_server_flush(wayembed_server *server);
 
+/* Returns a caller-owned snapshot. Free it with wayembed_snapshot_free(). */
 wayembed_snapshot *wayembed_server_snapshot(wayembed_server *server);
 bool wayembed_snapshot_get_counts(const wayembed_snapshot *snapshot,
-                                 wayembed_snapshot_counts *counts);
+                                  wayembed_snapshot_counts *counts);
 void wayembed_snapshot_free(wayembed_snapshot *snapshot);
 
+/* Opens a plugin-side display.
+ * Close it with wayembed_server_close_client_display(). */
 struct wl_display *wayembed_server_open_client_display(wayembed_server *server);
 bool wayembed_server_close_client_display(wayembed_server *server,
-                                         struct wl_display *display);
+                                          struct wl_display *display);
 
 struct wl_proxy *wayembed_server_create_proxy(wayembed_server *server,
-                                             struct wl_display *client_display,
-                                             struct wl_proxy *host_object);
+                                              struct wl_display *client_display,
+                                              struct wl_proxy *host_object);
 
 void wayembed_server_destroy_proxy(wayembed_server *server,
-                                  struct wl_proxy *proxy);
+                                   struct wl_proxy *proxy);
 
+/* Attaches a plugin child surface to a host parent surface. */
 bool wayembed_embed_attach(wayembed_client *client,
-                          struct wl_surface *parent_surface,
-                          struct wl_surface *child_surface);
+                           struct wl_surface *parent_surface,
+                           struct wl_surface *child_surface);
 
 bool wayembed_embed_resize(wayembed_client *client,
-                          int32_t width,
-                          int32_t height);
+                           int32_t width,
+                           int32_t height);
 
 #ifdef __cplusplus
 }

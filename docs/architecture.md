@@ -306,8 +306,8 @@ WayembedServer
   event queue / dispatch integration
 ```
 
-Delegates should hold stable references or ids back into those tables rather
-than becoming independent owners of cross-cutting state.
+Delegates should hold stable references or ids back into those tables instead
+of becoming independent owners of cross-cutting state.
 
 ```text
 SurfaceDelegate
@@ -329,6 +329,9 @@ Embed
 
 This keeps teardown deterministic. When a client closes, the server can walk
 the owned tables and destroy resources in the correct order.
+
+The public ownership contract lives in [Lifetime Rules](lifetime.md). Keep
+that page in sync with every public handle or callback change.
 
 ## Teardown Order
 

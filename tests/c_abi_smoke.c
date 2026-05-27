@@ -30,6 +30,23 @@ static int snapshot_clients(wayembed_snapshot *snapshot, size_t *clients)
     return 1;
 }
 
+static int check_feature_flags(uint64_t flags)
+{
+    const uint64_t expected =
+        WAYEMBED_FEATURE_COMPOSITOR |
+        WAYEMBED_FEATURE_SUBCOMPOSITOR |
+        WAYEMBED_FEATURE_SURFACE |
+        WAYEMBED_FEATURE_SHM_BUFFER |
+        WAYEMBED_FEATURE_EMBED_SESSION |
+        WAYEMBED_FEATURE_SEAT |
+        WAYEMBED_FEATURE_POINTER |
+        WAYEMBED_FEATURE_KEYBOARD |
+        WAYEMBED_FEATURE_TOUCH |
+        WAYEMBED_FEATURE_OUTPUT |
+        WAYEMBED_FEATURE_XDG_SHELL;
+    return (flags & expected) == expected;
+}
+
 static void on_client_connected(void *userdata, wayembed_client *client)
 {
     (void)userdata;
@@ -82,12 +99,33 @@ int main(void)
     if (wayembed_adapter_abi_version() != WAYEMBED_ADAPTER_ABI_VERSION) {
         return 2;
     }
-
-    if (wayembed_server_snapshot(NULL) != NULL) {
+    if (wayembed_get_features(NULL)) {
         return 3;
     }
-    if (wayembed_snapshot_get_counts(NULL, NULL)) {
+    wayembed_features features;
+    features.size = sizeof(features);
+    features.version = WAYEMBED_ABI_VERSION;
+    features.flags = 0;
+    if (!wayembed_get_features(&features) ||
+        !check_feature_flags(features.flags)) {
         return 4;
+    }
+    features.size = offsetof(wayembed_features, flags);
+    features.version = WAYEMBED_ABI_VERSION;
+    if (wayembed_get_features(&features)) {
+        return 5;
+    }
+    features.size = sizeof(features);
+    features.version = WAYEMBED_ABI_VERSION + 1u;
+    if (wayembed_get_features(&features)) {
+        return 6;
+    }
+
+    if (wayembed_server_snapshot(NULL) != NULL) {
+        return 7;
+    }
+    if (wayembed_snapshot_get_counts(NULL, NULL)) {
+        return 8;
     }
     wayembed_snapshot_free(NULL);
 
@@ -115,24 +153,24 @@ int main(void)
 
     wayembed_server *server = wayembed_server_create(&host, NULL);
     if (server == NULL) {
-        return 5;
+        return 9;
     }
 
     if (wayembed_server_get_fd(server) < 0) {
         wayembed_server_destroy(server);
-        return 6;
+        return 10;
     }
 
     wayembed_snapshot *empty_snapshot = wayembed_server_snapshot(server);
     if (empty_snapshot == NULL) {
         wayembed_server_destroy(server);
-        return 7;
+        return 11;
     }
     size_t empty_clients = 99;
     if (!snapshot_clients(empty_snapshot, &empty_clients) || empty_clients != 0) {
         wayembed_snapshot_free(empty_snapshot);
         wayembed_server_destroy(server);
-        return 8;
+        return 12;
     }
     wayembed_snapshot_counts invalid_counts;
     invalid_counts.size = offsetof(wayembed_snapshot_counts, outputs);
@@ -140,14 +178,14 @@ int main(void)
     if (wayembed_snapshot_get_counts(empty_snapshot, &invalid_counts)) {
         wayembed_snapshot_free(empty_snapshot);
         wayembed_server_destroy(server);
-        return 9;
+        return 13;
     }
     invalid_counts.size = sizeof(invalid_counts);
     invalid_counts.version = WAYEMBED_ABI_VERSION + 1u;
     if (wayembed_snapshot_get_counts(empty_snapshot, &invalid_counts)) {
         wayembed_snapshot_free(empty_snapshot);
         wayembed_server_destroy(server);
-        return 10;
+        return 14;
     }
     wayembed_snapshot_free(empty_snapshot);
 
@@ -155,16 +193,16 @@ int main(void)
     struct wl_display *display = wayembed_server_open_client_display(server);
     if (display == NULL) {
         wayembed_server_destroy(server);
-        return 11;
+        return 15;
     }
     if (wl_display_get_fd(display) < 0) {
         wayembed_server_destroy(server);
-        return 12;
+        return 16;
     }
     wayembed_server_dispatch(server);
     if (connected_count != 1 || last_client == NULL) {
         wayembed_server_destroy(server);
-        return 13;
+        return 17;
     }
 
     wayembed_adapter_handoff handoff;
@@ -177,14 +215,14 @@ int main(void)
     handoff.format_userdata = NULL;
     if (wayembed_adapter_handoff_validate(NULL)) {
         wayembed_server_destroy(server);
-        return 14;
+        return 18;
     }
     if (!wayembed_adapter_handoff_init(&handoff,
-                                      WAYEMBED_ADAPTER_FORMAT_CLAP,
-                                      server,
-                                      display)) {
+        WAYEMBED_ADAPTER_FORMAT_CLAP,
+        server,
+        display)) {
         wayembed_server_destroy(server);
-        return 15;
+        return 19;
     }
     if (!wayembed_adapter_handoff_validate(&handoff) ||
         handoff.version != WAYEMBED_ADAPTER_ABI_VERSION ||
@@ -192,19 +230,19 @@ int main(void)
         handoff.display != display ||
         handoff.format_token == NULL) {
         wayembed_server_destroy(server);
-        return 16;
+        return 20;
     }
     handoff.version = WAYEMBED_ADAPTER_ABI_VERSION + 1u;
     if (wayembed_adapter_handoff_validate(&handoff)) {
         wayembed_server_destroy(server);
-        return 17;
+        return 21;
     }
     if (wayembed_adapter_handoff_init(&handoff,
                                      WAYEMBED_ADAPTER_FORMAT_UNKNOWN,
                                      server,
                                      display)) {
         wayembed_server_destroy(server);
-        return 18;
+        return 22;
     }
 
     wayembed_adapter_resize resize;
@@ -215,40 +253,40 @@ int main(void)
     resize.scale = 1.0;
     if (!wayembed_adapter_resize_validate(&resize)) {
         wayembed_server_destroy(server);
-        return 19;
+        return 23;
     }
     resize.width = -1;
     if (wayembed_adapter_resize_validate(&resize)) {
         wayembed_server_destroy(server);
-        return 20;
+        return 24;
     }
 
     wayembed_snapshot *open_snapshot = wayembed_server_snapshot(server);
     if (open_snapshot == NULL) {
         wayembed_server_destroy(server);
-        return 21;
+        return 25;
     }
     size_t open_clients = 0;
     if (!snapshot_clients(open_snapshot, &open_clients) || open_clients != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 22;
+        return 26;
     }
     if (!wayembed_server_close_client_display(server, display)) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 23;
+        return 27;
     }
     wayembed_server_dispatch(server);
     if (closed_count != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 24;
+        return 28;
     }
     if (mapped_count != 0 || resized_count != 0 || destroyed_count != 0) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 25;
+        return 29;
     }
 
     size_t still_open_clients = 0;
@@ -256,21 +294,21 @@ int main(void)
         still_open_clients != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 26;
+        return 30;
     }
     wayembed_snapshot_free(open_snapshot);
 
     wayembed_snapshot *closed_snapshot = wayembed_server_snapshot(server);
     if (closed_snapshot == NULL) {
         wayembed_server_destroy(server);
-        return 27;
+        return 31;
     }
     size_t closed_clients = 99;
     if (!snapshot_clients(closed_snapshot, &closed_clients) ||
         closed_clients != 0) {
         wayembed_snapshot_free(closed_snapshot);
         wayembed_server_destroy(server);
-        return 28;
+        return 32;
     }
     wayembed_snapshot_free(closed_snapshot);
 
