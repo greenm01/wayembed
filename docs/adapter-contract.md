@@ -49,6 +49,10 @@ The sandbox covers five paths:
   plugin fixture and embeds the fixture-created surface.
 - `lv2-order-smoke` checks the LV2-shaped feature handoff order.
 
+Element carries the first opt-in real-host CLAP proof. Its wayembed spike is
+off by default, leaves the XEmbed path intact, and checks that the experimental
+CLAP token can carry a live wayembed display through the host GUI path.
+
 These are proof paths, not plugin loaders. Real CLAP and LV2 hosts still own
 bundle loading, plugin instantiation, GUI callbacks, and process management.
 

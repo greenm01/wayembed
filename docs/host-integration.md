@@ -277,11 +277,11 @@ wayembed_server_dispatch(server);
 Carla and Element already own the plugin-format layer. wayembed should sit
 under that layer, not replace it.
 
-The Element CLAP spike is the first real-host target. It must stay opt-in and
-must not replace Element's XEmbed path. The spike can prove the adapter token,
-display handoff, and CLAP callback order before it tries to map pixels. Full
-embedding still depends on Element or JUCE exposing the host parent
-`wl_surface` and the host Wayland globals.
+The Element CLAP spike is the first real-host proof. It stays opt-in and does
+not replace Element's XEmbed path. The spike proves the adapter token, display
+handoff, and CLAP callback order before trying to map pixels. Full embedding
+still depends on Element or JUCE exposing the host parent `wl_surface` and the
+host Wayland globals.
 
 For CLAP, the host opens a wayembed display before GUI creation, initializes a
 `WAYEMBED_ADAPTER_FORMAT_CLAP` handoff, and passes

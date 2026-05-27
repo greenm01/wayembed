@@ -43,6 +43,8 @@ current Phase 2 embedded UI path are complete:
   handoff tokens and validated display/resize structs.
 - `wayembed-sandbox` proves the Phase 3 C ABI from Nim with CLAP-shaped and
   LV2-shaped handoff order smokes plus a live embed smoke.
+- Element has an opt-in CLAP spike that keeps XEmbed as the default and proves
+  the adapter token/display handoff path without mapping pixels.
 - GitHub Actions runs the pinned Zig formatter, default test suite, and a
   required Weston smoke path on Linux.
 
@@ -84,9 +86,11 @@ first experimental handoff contract lives in `include/wayembed_adapters.h`
 and [adapter-contract.md](adapter-contract.md). `wayembed-sandbox` is the
 current proof harness. It now checks a CLAP handoff against a tiny C Wayland
 plugin fixture, so the display handoff is proven outside Nim too. Host-facing
-notes describe the Carla/Element-shaped glue path. The next real-host proof is
-the opt-in Element CLAP spike, with XEmbed still the default. Full CLAP/LV2
-runtime helpers and visible real-host embedding remain future work.
+notes describe the Carla/Element-shaped glue path. Element now carries the
+first opt-in real-host CLAP spike: it accepts the wayembed token, passes the
+display handoff through `clap_plugin_gui.set_parent()`, and leaves XEmbed as
+the default. Full CLAP/LV2 runtime helpers and visible real-host embedding
+remain future work.
 
 ### Linux dmabuf
 

@@ -63,9 +63,9 @@ Initial smoke coverage:
 - C plugin fixture proof: `wayembed-sandbox` passes a CLAP handoff display into
   C code, then embeds the C-created surface.
 - Carla- and Element-oriented integration notes for host-owned plugin glue.
-- Element CLAP proof: opt-in host spike targets the adapter token and display
-  handoff first. Visible embedding waits on parent `wl_surface` access from
-  Element or JUCE.
+- Element CLAP proof: opt-in host spike proves the adapter token and display
+  handoff while XEmbed remains the default. Visible embedding waits on parent
+  `wl_surface` access from Element or JUCE.
 
 ## Phase 4: Performance and Completeness
 
