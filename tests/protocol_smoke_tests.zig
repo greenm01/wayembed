@@ -18,12 +18,16 @@ const wlp = wayplug.wayland.protocols;
 const SmokeCompositor = enum {
     weston,
     river,
+    mutter,
+    niri,
 };
 
 const SmokeFilter = enum {
     available,
     weston,
     river,
+    mutter,
+    niri,
     all,
 };
 
@@ -33,6 +37,8 @@ const CompositorSmokeSpec = struct {
     socket_name: ?[]const u8,
     argv: []const []const u8,
     extra_env: []const EnvPair = &.{},
+    set_wayland_display_env: bool = true,
+    use_runtime_config_home: bool = false,
     required: bool,
 };
 
@@ -405,8 +411,7 @@ test "weston headless smoke forwards create attach commit and embed" {
 
     const allocator = std.testing.allocator;
     const filter = smokeFilter();
-    const required = filter == .weston or filter == .all;
-    if (filter == .river) return error.SkipZigTest;
+    if (!smokeSelected(filter, .weston)) return error.SkipZigTest;
 
     const nonce = c.getpid();
     const socket_name = try std.fmt.allocPrintSentinel(allocator, "wayplug-smoke-{d}", .{nonce}, 0);
@@ -435,7 +440,7 @@ test "weston headless smoke forwards create attach commit and embed" {
         .name = "weston",
         .socket_name = socket_name,
         .argv = weston_argv[0..],
-        .required = required,
+        .required = smokeRequired(filter, .weston),
     });
     _ = c.unlink(log_path.ptr);
 }
@@ -444,8 +449,7 @@ test "river headless smoke forwards create attach commit and embed" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     const filter = smokeFilter();
-    const required = filter == .river or filter == .all;
-    if (filter == .weston) return error.SkipZigTest;
+    if (!smokeSelected(filter, .river)) return error.SkipZigTest;
 
     const river_bin = getenvSlice("WAYPLUG_RIVER_BIN") orelse "river";
     const river_argv = [_][]const u8{
@@ -466,7 +470,65 @@ test "river headless smoke forwards create attach commit and embed" {
         .socket_name = null,
         .argv = river_argv[0..],
         .extra_env = river_env[0..],
-        .required = required,
+        .required = smokeRequired(filter, .river),
+    });
+}
+
+test "mutter headless smoke forwards create attach commit and embed" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    const filter = smokeFilter();
+    if (!smokeSelected(filter, .mutter)) return error.SkipZigTest;
+
+    const nonce = c.getpid();
+    const socket_name = try std.fmt.allocPrintSentinel(allocator, "wayplug-mutter-smoke-{d}", .{nonce}, 0);
+    defer allocator.free(socket_name);
+    const display_arg = try std.fmt.allocPrint(allocator, "--wayland-display={s}", .{socket_name});
+    defer allocator.free(display_arg);
+    const mutter_bin = getenvSlice("WAYPLUG_MUTTER_BIN") orelse "mutter";
+    const mutter_argv = [_][]const u8{
+        "dbus-run-session",
+        "--",
+        mutter_bin,
+        "--wayland",
+        "--headless",
+        "--no-x11",
+        display_arg,
+        "--virtual-monitor=320x240",
+    };
+    try runCompositorSmoke(.{
+        .compositor = .mutter,
+        .name = "mutter",
+        .socket_name = socket_name,
+        .argv = mutter_argv[0..],
+        .set_wayland_display_env = false,
+        .required = smokeRequired(filter, .mutter),
+    });
+}
+
+test "niri smoke forwards create attach commit and embed" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const filter = smokeFilter();
+    if (!smokeSelected(filter, .niri)) return error.SkipZigTest;
+
+    const niri_bin = getenvSlice("WAYPLUG_NIRI_BIN") orelse "niri";
+    var niri_env: [1]EnvPair = undefined;
+    var extra_env: []const EnvPair = &.{};
+    if (getenvSlice("DISPLAY")) |display| {
+        niri_env[0] = .{ .key = "DISPLAY", .value = display };
+        extra_env = niri_env[0..];
+    }
+    const niri_argv = [_][]const u8{niri_bin};
+    try runCompositorSmoke(.{
+        .compositor = .niri,
+        .name = "niri",
+        .socket_name = null,
+        .argv = niri_argv[0..],
+        .extra_env = extra_env,
+        .use_runtime_config_home = true,
+        .required = smokeRequired(filter, .niri),
     });
 }
 
@@ -482,7 +544,7 @@ fn runCompositorSmoke(spec: CompositorSmokeSpec) !void {
     defer allocator.free(runtime_dir);
 
     if (c.mkdir(runtime_dir.ptr, 0o700) != 0) return error.SkipZigTest;
-    defer _ = c.rmdir(runtime_dir.ptr);
+    defer std.Io.Dir.deleteTree(.cwd(), std.testing.io, runtime_dir) catch {};
     _ = c.chmod(runtime_dir.ptr, 0o700);
 
     const old_runtime_dir = if (getenvSlice("XDG_RUNTIME_DIR")) |value|
@@ -499,7 +561,14 @@ fn runCompositorSmoke(spec: CompositorSmokeSpec) !void {
     }
     if (c.setenv("XDG_RUNTIME_DIR", runtime_dir.ptr, 1) != 0) return error.EnvironmentSetupFailed;
 
-    var env_map = try childEnvironment(allocator, runtime_dir, spec.socket_name, spec.extra_env);
+    const child_wayland_display = if (spec.set_wayland_display_env) spec.socket_name else null;
+    var env_map = try childEnvironment(
+        allocator,
+        runtime_dir,
+        child_wayland_display,
+        spec.extra_env,
+        spec.use_runtime_config_home,
+    );
     defer env_map.deinit();
 
     var compositor = std.process.spawn(std.testing.io, .{
@@ -686,8 +755,29 @@ fn smokeFilter() SmokeFilter {
     const raw = getenvSlice("WAYPLUG_SMOKE_COMPOSITOR") orelse return .available;
     if (std.mem.eql(u8, raw, "weston")) return .weston;
     if (std.mem.eql(u8, raw, "river")) return .river;
+    if (std.mem.eql(u8, raw, "mutter")) return .mutter;
+    if (std.mem.eql(u8, raw, "niri")) return .niri;
     if (std.mem.eql(u8, raw, "all")) return .all;
     return .available;
+}
+
+fn smokeSelected(filter: SmokeFilter, compositor: SmokeCompositor) bool {
+    return switch (filter) {
+        .available, .all => true,
+        .weston => compositor == .weston,
+        .river => compositor == .river,
+        .mutter => compositor == .mutter,
+        .niri => compositor == .niri,
+    };
+}
+
+fn smokeRequired(filter: SmokeFilter, compositor: SmokeCompositor) bool {
+    return filter == .all or switch (compositor) {
+        .weston => filter == .weston,
+        .river => filter == .river,
+        .mutter => filter == .mutter,
+        .niri => filter == .niri,
+    };
 }
 
 fn childEnvironment(
@@ -695,6 +785,7 @@ fn childEnvironment(
     runtime_dir: [:0]const u8,
     socket_name: ?[]const u8,
     extra: []const EnvPair,
+    use_runtime_config_home: bool,
 ) !std.process.Environ.Map {
     var map = std.process.Environ.Map.init(allocator);
     errdefer map.deinit();
@@ -702,6 +793,7 @@ fn childEnvironment(
     if (getenvSlice("PATH")) |path| try map.put("PATH", path);
     if (getenvSlice("HOME")) |home| try map.put("HOME", home);
     try map.put("XDG_RUNTIME_DIR", runtime_dir);
+    if (use_runtime_config_home) try map.put("XDG_CONFIG_HOME", runtime_dir);
     if (socket_name) |name| try map.put("WAYLAND_DISPLAY", name);
     for (extra) |pair| try map.put(pair.key, pair.value);
     return map;
