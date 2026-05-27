@@ -20,11 +20,21 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
     const surface_bindings = surface_protocol.Bindings(Server, ResourceData);
 
     return struct {
-        pub const impl = wls.c.struct_wl_compositor_interface{
-            .create_surface = compositorCreateSurface,
-            .create_region = compositorCreateRegion,
-            .release = H.resourceRelease,
-        };
+        pub const impl = compositorImpl();
+
+        fn compositorImpl() wls.c.struct_wl_compositor_interface {
+            if (comptime @hasField(wls.c.struct_wl_compositor_interface, "release")) {
+                return .{
+                    .create_surface = compositorCreateSurface,
+                    .create_region = compositorCreateRegion,
+                    .release = H.resourceRelease,
+                };
+            }
+            return .{
+                .create_surface = compositorCreateSurface,
+                .create_region = compositorCreateRegion,
+            };
+        }
 
         fn compositorCreateSurface(client: ?*wls.wl_client, resource: ?*wls.wl_resource, id: u32) callconv(.c) void {
             const data = H.dataForResource(resource) orelse return;

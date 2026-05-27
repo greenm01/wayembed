@@ -23,10 +23,19 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
     const shm_pool_bindings = shm_pool_protocol.Bindings(Server, ResourceData);
 
     return struct {
-        pub const impl = wls.c.struct_wl_shm_interface{
-            .create_pool = shmCreatePool,
-            .release = H.resourceRelease,
-        };
+        pub const impl = shmImpl();
+
+        fn shmImpl() wls.c.struct_wl_shm_interface {
+            if (comptime @hasField(wls.c.struct_wl_shm_interface, "release")) {
+                return .{
+                    .create_pool = shmCreatePool,
+                    .release = H.resourceRelease,
+                };
+            }
+            return .{
+                .create_pool = shmCreatePool,
+            };
+        }
 
         fn shmCreatePool(client: ?*wls.wl_client, resource: ?*wls.wl_resource, id: u32, fd: i32, size: i32) callconv(.c) void {
             const data = H.dataForResource(resource) orelse {

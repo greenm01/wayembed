@@ -16,9 +16,17 @@ pub fn create() Delegate {
     return .{};
 }
 
+const key_state_repeated: u32 = if (@hasDecl(wls.c, "WL_KEYBOARD_KEY_STATE_REPEATED"))
+    @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED)
+else
+    2;
+const key_state_repeated_since_version: c_int = if (@hasDecl(wls.c, "WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION"))
+    @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION)
+else
+    10;
+
 pub fn normalizeKeyStateForVersion(resource_version: c_int, state: u32) u32 {
-    const repeated: u32 = @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED);
-    if (resource_version < wls.c.WL_KEYBOARD_KEY_STATE_REPEATED_SINCE_VERSION and state == repeated) {
+    if (resource_version < key_state_repeated_since_version and state == key_state_repeated) {
         return @intCast(wls.c.WL_KEYBOARD_KEY_STATE_PRESSED);
     }
     return state;
@@ -148,11 +156,11 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
 test "key state repeated downgrades before keyboard v10" {
     try std.testing.expectEqual(
         @as(u32, @intCast(wls.c.WL_KEYBOARD_KEY_STATE_PRESSED)),
-        normalizeKeyStateForVersion(9, @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED)),
+        normalizeKeyStateForVersion(9, key_state_repeated),
     );
     try std.testing.expectEqual(
-        @as(u32, @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED)),
-        normalizeKeyStateForVersion(10, @intCast(wls.c.WL_KEYBOARD_KEY_STATE_REPEATED)),
+        key_state_repeated,
+        normalizeKeyStateForVersion(10, key_state_repeated),
     );
 }
 
