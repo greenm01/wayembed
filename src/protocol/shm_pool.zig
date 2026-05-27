@@ -40,6 +40,10 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
                 @ptrCast(buffer),
             ) orelse return;
             const buffer_data = H.dataForResource(buffer_resource) orelse return;
+            _ = data.server.engine.bufferCreate(data.client_id, buffer_data.resource_id) catch {
+                wls.c.wl_resource_destroy(buffer_resource);
+                return;
+            };
             _ = wlc.c.wl_buffer_add_listener(buffer, &buffer_bindings.listener, buffer_data);
         }
 

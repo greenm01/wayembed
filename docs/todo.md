@@ -63,10 +63,11 @@ resources, and relationship indexes before `client_closed` effects fire.
 Regression tests cover full embed graph cleanup and multi-client
 preservation.
 
-### End-to-end compositor smoke
+### ~~End-to-end compositor smoke~~
 
-Drive the current create-surface → shm buffer → attach → commit → embed
-flow against a headless compositor and assert the upstream calls land.
+Done: `zig build test` now includes a Weston headless smoke that drives
+create-surface → shm buffer → attach → commit → embed resize through the
+delegated server and asserts model state plus Wayland error-free delivery.
 
 ## Engine maturation
 
@@ -148,11 +149,9 @@ Output metadata forwarding so plugins can scale correctly.
 
 ### Engine end-to-end smoke tests
 
-With real delegates in place, `tests/protocol_smoke_tests.zig` can spin
-up a headless compositor (Weston `--backend=headless` or River with no
-seat) on a unix socket, connect a wayplug-driven test client, drive a
-`create_surface` → attach buffer → embed → resize → destroy sequence,
-and assert the upstream calls landed. Blocked on Phase 1 delegates.
+Initial Weston headless coverage exists in `tests/protocol_smoke_tests.zig`.
+Expand it into a compositor matrix (River, Mutter, KWin) once CI can
+provide those environments.
 
 ### CI
 

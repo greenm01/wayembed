@@ -83,6 +83,10 @@ pub const Engine = struct {
         return surface.surfaceForResource(&self.model, resource_id);
     }
 
+    pub fn bufferCreate(self: *Engine, client_id: types.ClientId, resource_id: types.ResourceId) !types.BufferId {
+        return buffer.bufferCreate(&self.model, client_id, resource_id);
+    }
+
     pub fn upstreamProxyForResource(self: *const Engine, resource_id: types.ResourceId) ?*@import("../wayland/client.zig").wl_proxy {
         return resource.upstreamProxyForResource(&self.model, resource_id);
     }
