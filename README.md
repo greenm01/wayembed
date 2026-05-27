@@ -12,6 +12,12 @@ The current target is embedded editors for audio plugin formats such as CLAP
 and LV2. Floating plugin windows are a separate problem and are not in
 scope yet.
 
+## Proof of Concept
+
+[wayembed-sandbox](https://github.com/greenm01/wayembed-sandbox) is a minimal
+Nim host used to exercise the C ABI and prove early delegated Wayland embedding
+flows outside this repository.
+
 ## Build
 
 Build dependencies are Zig, pkg-config, libwayland client/server development
