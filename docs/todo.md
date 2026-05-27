@@ -16,8 +16,8 @@ complete:
 - protocol delegates live under `src/protocol/`.
 - registry/global binding validates versions and reports protocol errors.
 - client teardown clears embeds, surfaces, buffers, resources, and indexes.
-- Weston headless smoke covers create-surface, shm buffer, attach, commit,
-  embed attach, and resize.
+- Weston and River headless smoke cover create-surface, shm buffer, attach,
+  commit, embed attach, and resize through a shared compositor harness.
 - `EntityManager` uses dense storage with sparse id lookup.
 - effects drain from `wayplug_server_dispatch()`.
 - `on_protocol_error` is exposed through the host interface.
@@ -44,15 +44,15 @@ complete:
 
 ### Engine end-to-end smoke tests
 
-Initial Weston headless coverage exists in `tests/protocol_smoke_tests.zig`.
-Expand it into a compositor matrix (River, Mutter, KWin) once CI can provide
+Weston and River headless coverage exists in `tests/protocol_smoke_tests.zig`.
+Expand it into a broader compositor matrix (Mutter, KWin) once CI can provide
 those environments.
 
 ### CI
 
 Baseline GitHub Actions coverage exists with a pinned Zig version,
 `zig fmt --check`, and `zig build test` on Linux. Expand to a compositor
-matrix (Weston, Mutter, KWin, River) once smoke tests need it.
+matrix (Weston, River, Mutter, KWin) once CI can provide those environments.
 
 ### Fuzz and protocol-error tests
 

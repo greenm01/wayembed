@@ -15,6 +15,32 @@ const c = @cImport({
 const wlc = wayplug.wayland.client.c;
 const wlp = wayplug.wayland.protocols;
 
+const SmokeCompositor = enum {
+    weston,
+    river,
+};
+
+const SmokeFilter = enum {
+    available,
+    weston,
+    river,
+    all,
+};
+
+const CompositorSmokeSpec = struct {
+    compositor: SmokeCompositor,
+    name: []const u8,
+    socket_name: ?[]const u8,
+    argv: []const []const u8,
+    extra_env: []const EnvPair = &.{},
+    required: bool,
+};
+
+const EnvPair = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
 test "every protocol delegate has a create() that compiles" {
     _ = wayplug.protocol.server_display.create();
     _ = wayplug.protocol.registry.create();
@@ -378,28 +404,19 @@ test "weston headless smoke forwards create attach commit and embed" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
+    const filter = smokeFilter();
+    const required = filter == .weston or filter == .all;
+    if (filter == .river) return error.SkipZigTest;
+
     const nonce = c.getpid();
-    const runtime_dir = try std.fmt.allocPrintSentinel(allocator, "/tmp/wayplug-smoke-{d}", .{nonce}, 0);
-    defer allocator.free(runtime_dir);
     const socket_name = try std.fmt.allocPrintSentinel(allocator, "wayplug-smoke-{d}", .{nonce}, 0);
     defer allocator.free(socket_name);
     const socket_arg = try std.fmt.allocPrint(allocator, "--socket={s}", .{socket_name});
     defer allocator.free(socket_arg);
-    const log_path = try std.fmt.allocPrintSentinel(allocator, "{s}/weston.log", .{runtime_dir}, 0);
+    const log_path = try std.fmt.allocPrintSentinel(allocator, "/tmp/wayplug-smoke-weston-{d}/weston.log", .{nonce}, 0);
     defer allocator.free(log_path);
     const log_arg = try std.fmt.allocPrint(allocator, "--log={s}", .{log_path});
     defer allocator.free(log_arg);
-    const socket_path = try std.fmt.allocPrintSentinel(allocator, "{s}/{s}", .{ runtime_dir, socket_name }, 0);
-    defer allocator.free(socket_path);
-
-    if (c.mkdir(runtime_dir.ptr, 0o700) != 0) return error.SkipZigTest;
-    defer {
-        _ = c.unlink(socket_path.ptr);
-        _ = c.unlink(log_path.ptr);
-        _ = c.rmdir(runtime_dir.ptr);
-    }
-    _ = c.chmod(runtime_dir.ptr, 0o700);
-    if (c.setenv("XDG_RUNTIME_DIR", runtime_dir.ptr, 1) != 0) return error.EnvironmentSetupFailed;
 
     const weston_argv = [_][]const u8{
         "weston",
@@ -413,20 +430,116 @@ test "weston headless smoke forwards create attach commit and embed" {
         socket_arg,
         log_arg,
     };
-    var weston = std.process.spawn(std.testing.io, .{
+    try runCompositorSmoke(.{
+        .compositor = .weston,
+        .name = "weston",
+        .socket_name = socket_name,
         .argv = weston_argv[0..],
+        .required = required,
+    });
+    _ = c.unlink(log_path.ptr);
+}
+
+test "river headless smoke forwards create attach commit and embed" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const filter = smokeFilter();
+    const required = filter == .river or filter == .all;
+    if (filter == .weston) return error.SkipZigTest;
+
+    const river_bin = getenvSlice("WAYPLUG_RIVER_BIN") orelse "river";
+    const river_argv = [_][]const u8{
+        river_bin,
+        "-no-xwayland",
+        "-log-level",
+        "error",
+        "-c",
+        "true",
+    };
+    const river_env = [_]EnvPair{
+        .{ .key = "WLR_BACKENDS", .value = "headless" },
+        .{ .key = "WLR_LIBINPUT_NO_DEVICES", .value = "1" },
+    };
+    try runCompositorSmoke(.{
+        .compositor = .river,
+        .name = "river",
+        .socket_name = null,
+        .argv = river_argv[0..],
+        .extra_env = river_env[0..],
+        .required = required,
+    });
+}
+
+fn runCompositorSmoke(spec: CompositorSmokeSpec) !void {
+    const allocator = std.testing.allocator;
+    const nonce = c.getpid();
+    const runtime_dir = try std.fmt.allocPrintSentinel(
+        allocator,
+        "/tmp/wayplug-smoke-{s}-{d}",
+        .{ spec.name, nonce },
+        0,
+    );
+    defer allocator.free(runtime_dir);
+
+    if (c.mkdir(runtime_dir.ptr, 0o700) != 0) return error.SkipZigTest;
+    defer _ = c.rmdir(runtime_dir.ptr);
+    _ = c.chmod(runtime_dir.ptr, 0o700);
+
+    const old_runtime_dir = if (getenvSlice("XDG_RUNTIME_DIR")) |value|
+        try std.fmt.allocPrintSentinel(allocator, "{s}", .{value}, 0)
+    else
+        null;
+    defer if (old_runtime_dir) |value| allocator.free(value);
+    defer {
+        if (old_runtime_dir) |value| {
+            _ = c.setenv("XDG_RUNTIME_DIR", value.ptr, 1);
+        } else {
+            _ = c.unsetenv("XDG_RUNTIME_DIR");
+        }
+    }
+    if (c.setenv("XDG_RUNTIME_DIR", runtime_dir.ptr, 1) != 0) return error.EnvironmentSetupFailed;
+
+    var env_map = try childEnvironment(allocator, runtime_dir, spec.socket_name, spec.extra_env);
+    defer env_map.deinit();
+
+    var compositor = std.process.spawn(std.testing.io, .{
+        .argv = spec.argv,
+        .environ_map = &env_map,
         .stdin = .ignore,
         .stdout = .ignore,
         .stderr = .ignore,
-    }) catch return error.SkipZigTest;
-    var weston_running = true;
-    defer if (weston_running) {
-        weston.kill(std.testing.io);
+    }) catch |err| {
+        if (spec.required) return err;
+        return error.SkipZigTest;
+    };
+    var compositor_running = true;
+    defer if (compositor_running) {
+        compositor.kill(std.testing.io);
     };
 
-    if (!waitForSocket(socket_path)) return error.SkipZigTest;
+    const socket_name = if (spec.socket_name) |name|
+        name
+    else
+        waitForWaylandSocket(allocator, runtime_dir) orelse {
+            if (spec.required) return error.CompositorSocketTimedOut;
+            return error.SkipZigTest;
+        };
+    const owns_socket_name = spec.socket_name == null;
+    defer if (owns_socket_name) allocator.free(socket_name);
 
-    const host_display = wlc.wl_display_connect(socket_name.ptr) orelse return error.HostDisplayConnectFailed;
+    const socket_path = try std.fmt.allocPrintSentinel(allocator, "{s}/{s}", .{ runtime_dir, socket_name }, 0);
+    defer allocator.free(socket_path);
+    defer _ = c.unlink(socket_path.ptr);
+
+    const socket_name_z = try std.fmt.allocPrintSentinel(allocator, "{s}", .{socket_name}, 0);
+    defer allocator.free(socket_name_z);
+
+    if (!waitForSocket(socket_path)) {
+        if (spec.required) return error.CompositorSocketTimedOut;
+        return error.SkipZigTest;
+    }
+
+    const host_display = wlc.wl_display_connect(socket_name_z.ptr) orelse return error.HostDisplayConnectFailed;
     defer wlc.wl_display_disconnect(host_display);
     const host_registry_state = try bindCoreGlobals(host_display);
     const parent_surface = wlc.wl_compositor_create_surface(host_registry_state.compositor.?) orelse return error.CreateParentSurfaceFailed;
@@ -486,7 +599,7 @@ test "weston headless smoke forwards create attach commit and embed" {
     const plugin_registry_state = try bindCoreGlobals(plugin_display);
     if (host_registry_state.seat != null) {
         try std.testing.expect(plugin_registry_state.seat != null);
-        try std.testing.expect((plugin_registry_state.seat_capabilities & wlc.WL_SEAT_CAPABILITY_POINTER) != 0);
+        try std.testing.expectEqual(host_registry_state.seat_capabilities, plugin_registry_state.seat_capabilities);
     }
     if (host_registry_state.xdg_wm_base != null) {
         try std.testing.expect(plugin_registry_state.xdg_wm_base != null);
@@ -544,8 +657,8 @@ test "weston headless smoke forwards create attach commit and embed" {
     try std.testing.expectEqual(@as(usize, 0), server.engine.model.buffers.count());
     try std.testing.expectEqual(@as(usize, 0), server.engine.model.resources.count());
 
-    weston_running = false;
-    weston.kill(std.testing.io);
+    compositor_running = false;
+    compositor.kill(std.testing.io);
 }
 
 fn bindCoreGlobals(display: *wlc.struct_wl_display) !RegistryState {
@@ -569,12 +682,63 @@ fn flushDisplay(display: *wlc.struct_wl_display) !void {
     try std.testing.expect(wlc.wl_display_flush(display) >= 0);
 }
 
+fn smokeFilter() SmokeFilter {
+    const raw = getenvSlice("WAYPLUG_SMOKE_COMPOSITOR") orelse return .available;
+    if (std.mem.eql(u8, raw, "weston")) return .weston;
+    if (std.mem.eql(u8, raw, "river")) return .river;
+    if (std.mem.eql(u8, raw, "all")) return .all;
+    return .available;
+}
+
+fn childEnvironment(
+    allocator: std.mem.Allocator,
+    runtime_dir: [:0]const u8,
+    socket_name: ?[]const u8,
+    extra: []const EnvPair,
+) !std.process.Environ.Map {
+    var map = std.process.Environ.Map.init(allocator);
+    errdefer map.deinit();
+
+    if (getenvSlice("PATH")) |path| try map.put("PATH", path);
+    if (getenvSlice("HOME")) |home| try map.put("HOME", home);
+    try map.put("XDG_RUNTIME_DIR", runtime_dir);
+    if (socket_name) |name| try map.put("WAYLAND_DISPLAY", name);
+    for (extra) |pair| try map.put(pair.key, pair.value);
+    return map;
+}
+
+fn getenvSlice(name: [*:0]const u8) ?[]const u8 {
+    const value = c.getenv(name) orelse return null;
+    return std.mem.span(@as([*:0]const u8, @ptrCast(value)));
+}
+
 fn waitForSocket(path: [:0]const u8) bool {
     for (0..200) |_| {
         if (c.access(path.ptr, c.F_OK) == 0) return true;
         sleepMs(10);
     }
     return false;
+}
+
+fn waitForWaylandSocket(allocator: std.mem.Allocator, runtime_dir: [:0]const u8) ?[]u8 {
+    for (0..200) |_| {
+        if (findWaylandSocket(allocator, runtime_dir)) |socket_name| return socket_name;
+        sleepMs(10);
+    }
+    return null;
+}
+
+fn findWaylandSocket(allocator: std.mem.Allocator, runtime_dir: [:0]const u8) ?[]u8 {
+    var dir = std.Io.Dir.openDirAbsolute(std.testing.io, runtime_dir, .{ .iterate = true }) catch return null;
+    defer dir.close(std.testing.io);
+
+    var iter = dir.iterate();
+    while (iter.next(std.testing.io) catch return null) |entry| {
+        if (!std.mem.startsWith(u8, entry.name, "wayland-")) continue;
+        if (std.mem.endsWith(u8, entry.name, ".lock")) continue;
+        return allocator.dupe(u8, entry.name) catch return null;
+    }
+    return null;
 }
 
 fn waitForSurfaceCreated(state: *const HostSmokeState) !void {

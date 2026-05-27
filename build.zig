@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     const test_step = b.step("test", "Run unit and C ABI smoke tests");
+    var previous_test_run: ?*std.Build.Step = null;
 
     // Unit tests: drive the in-file `test` blocks under src/.
     const unit_test_mod = b.createModule(.{
@@ -36,7 +37,11 @@ pub fn build(b: *std.Build) void {
     const unit_tests = b.addTest(.{
         .root_module = unit_test_mod,
     });
-    test_step.dependOn(&b.addRunArtifact(unit_tests).step);
+    const unit_run = b.addRunArtifact(unit_tests);
+    removeSmokeEnvironment(unit_run);
+    if (previous_test_run) |previous| unit_run.step.dependOn(previous);
+    previous_test_run = &unit_run.step;
+    test_step.dependOn(&unit_run.step);
 
     // Integration tests: each file imports the `wayplug` module.
     const integration_test_files = [_][]const u8{
@@ -54,7 +59,13 @@ pub fn build(b: *std.Build) void {
         mod.addImport("wayplug", wayplug_mod);
         linkWayland(mod);
         const t = b.addTest(.{ .root_module = mod });
-        test_step.dependOn(&b.addRunArtifact(t).step);
+        const run = b.addRunArtifact(t);
+        if (!std.mem.eql(u8, path, "tests/protocol_smoke_tests.zig")) {
+            removeSmokeEnvironment(run);
+        }
+        if (previous_test_run) |previous| run.step.dependOn(previous);
+        previous_test_run = &run.step;
+        test_step.dependOn(&run.step);
     }
 
     // C ABI smoke: compile c_abi_smoke.c against the static lib.
@@ -73,7 +84,16 @@ pub fn build(b: *std.Build) void {
     c_abi_smoke.root_module.addIncludePath(b.path("include"));
     c_abi_smoke.root_module.linkLibrary(lib);
     linkWayland(c_abi_smoke.root_module);
-    test_step.dependOn(&b.addRunArtifact(c_abi_smoke).step);
+    const c_abi_run = b.addRunArtifact(c_abi_smoke);
+    removeSmokeEnvironment(c_abi_run);
+    if (previous_test_run) |previous| c_abi_run.step.dependOn(previous);
+    previous_test_run = &c_abi_run.step;
+    test_step.dependOn(&c_abi_run.step);
+}
+
+fn removeSmokeEnvironment(run: *std.Build.Step.Run) void {
+    run.removeEnvironmentVariable("WAYPLUG_SMOKE_COMPOSITOR");
+    run.removeEnvironmentVariable("WAYPLUG_RIVER_BIN");
 }
 
 const XdgProtocol = struct {
