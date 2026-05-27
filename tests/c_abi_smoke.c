@@ -44,6 +44,7 @@ int main(void)
     host.on_client_connected = on_client_connected;
     host.on_surface_created = NULL;
     host.on_client_closed = on_client_closed;
+    host.on_protocol_error = NULL;
 
     wayplug_server *server = wayplug_server_create(&host, NULL);
     if (server == NULL) {

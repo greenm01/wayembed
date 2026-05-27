@@ -41,6 +41,15 @@ typedef struct wayplug_host_interface {
                                   struct wl_display *display,
                                   struct wl_surface *parent,
                                   struct wl_surface *child);
+
+    void (*on_client_connected)(void *userdata, wayplug_client *client);
+    void (*on_surface_created)(void *userdata,
+                               wayplug_client *client,
+                               struct wl_surface *plugin_child_surface);
+    void (*on_client_closed)(void *userdata, wayplug_client *client);
+    void (*on_protocol_error)(void *userdata,
+                              wayplug_client *client,
+                              uint32_t code);
 } wayplug_host_interface;
 
 wayplug_server *wayplug_server_create(const wayplug_host_interface *host,
@@ -67,6 +76,8 @@ void wayplug_server_destroy_proxy(wayplug_server *server,
 ## ABI Rules
 
 - All public structs should contain `size` and `version` fields.
+- Append-only callback-table fields are guarded by `size`; missing fields
+  are treated as null callbacks.
 - Public object types should be opaque.
 - The library owns objects returned by `wayplug_*_create`.
 - Callers release objects with matching destroy/close functions.

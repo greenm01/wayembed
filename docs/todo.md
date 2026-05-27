@@ -6,75 +6,64 @@ items assume earlier ones. Cross off as work lands.
 
 ## Phase 0 wrap-up
 
-### Link libwayland
+Phase 0 runtime scaffolding landed in `86a2307`. The public ABI stayed at
+version 1; Zig-side code now links real Wayland symbols while the public
+header keeps forward declarations.
 
-`src/wayland/` declares opaque types only. Phase 1 needs
-`libwayland-server` and `libwayland-client` discoverable through
-`build.zig`. Use pkg-config via `b.dependency` or system paths. The
-header forward-declarations in `include/wayplug.h` stay; only Zig-side
-code reaches real symbols.
+### ~~Link libwayland~~
 
-### Real `wl_display` in `server.zig`
+Done: `build.zig` links `libwayland-server` and `libwayland-client`
+through pkg-config, and `src/wayland/` imports the real client/server
+headers.
 
-Replace the `getFd() -> -1` stub with `wl_display_create()` +
-`wl_display_get_event_loop()` + `wl_event_loop_get_fd()`. Wire
-`dispatch()` to `wl_display_dispatch()` and `flush()` to
-`wl_display_flush_clients()`. Update `tests/c_abi_smoke.c` to expect a
-real fd back from `wayplug_server_get_fd`.
+### ~~Real `wl_display` in `server.zig`~~
 
-### Real client open/close
+Done: `server.zig` owns a real `wl_display` and event loop, `get_fd`
+returns the Wayland event-loop fd, `dispatch()` drives the loop, and
+`flush()` calls `wl_display_flush_clients()`.
 
-`wayplug_server_open_client_display` returns null today. Implement via
-`socketpair(AF_UNIX, SOCK_STREAM)` → `wl_client_create(display, fd[0])`
-→ `wl_display_connect_to_fd(fd[1])`. The matching
-`engine.client.clientCreate` call lands the new client in the model. The
-`on_client_connected` callback fires from the effect drain after
-dispatch.
+### ~~Real client open/close~~
 
-### `wayplug_client` opaque handle
+Done: `wayplug_server_open_client_display` uses `socketpair` plus
+`wl_client_create`/`wl_display_connect_to_fd`, indexes the client in the
+model, and lifecycle callbacks fire from the effect drain.
 
-The opaque type exists but no function returns one. Allocate a stable
-`ClientHandle` struct per client (separate from the EntityManager) and
-hand `*ClientHandle` out through the lifecycle callbacks and
-`wayplug_embed_*` functions. The handle wraps a `ClientId` for engine
-lookup so the table can reallocate without invalidating the host's
-pointer.
+### ~~`wayplug_client` opaque handle~~
+
+Done: the server allocates stable `ClientHandle` records and passes them
+through lifecycle callbacks and `wayplug_embed_*`.
 
 ## Phase 1: First real delegate flow
 
-### `wl_registry` bind dispatch
+The first inline delegate pass landed in `server.zig`: `wl_compositor`,
+`wl_surface`, `wl_subcompositor`, `wl_subsurface`, `wl_shm`,
+`wl_shm_pool`, `wl_buffer`, `wl_callback`, and `wl_region` now have
+initial forwarding. Remaining Phase 1 work should make this maintainable
+and prove the flow against a compositor.
 
-The first protocol that does real work. Advertises only the globals the
-host supplies through `wayplug_host_interface`. The C++ reference's
-`registrydelegate.cpp` is 663 lines; a comptime dispatch table in Zig
-should land it considerably tighter.
+### Split inline delegates into `src/protocol/`
 
-### `wl_compositor` and `wl_surface`
+Move the delegate implementation currently concentrated in `server.zig`
+into the existing `src/protocol/*.zig` modules. Keep `server.zig` as the
+runtime owner and registration coordinator, and keep lifecycle mutation
+through the engine facade.
 
-First end-to-end flow. The plugin binds `wl_compositor`, calls
-`create_surface`, the delegate forwards to the host's upstream
-`wl_compositor`, registers the new `Resource` and `Surface` in the
-model, and fires `on_surface_created`. Direct forwarding for attach,
-damage, and commit per [architecture.md](architecture.md) § What Stays
-Direct.
+### Strengthen registry/global behavior
 
-### `wl_subcompositor` and `wl_subsurface`
+The initial registry behavior advertises host-supplied core globals.
+Add version-selection tests, invalid-version handling, and clearer
+global/resource diagnostics before expanding protocol coverage.
 
-The embed primitive. The delegate triggers
-`engine.embed.embedAttachChild`. Implements `wayplug_embed_attach` on
-the C ABI side. With this and the surface delegate in place,
-[host-integration.md](host-integration.md) runs end-to-end against a
-real compositor.
+### Complete embed teardown
 
-### `wl_shm`, `wl_shm_pool`, `wl_buffer`
+`wayplug_embed_attach` creates and tracks an upstream subsurface. Add the
+remaining teardown path so embed/resource/surface indexes are cleared in
+the order described by [architecture.md](architecture.md).
 
-Required to render anything. Fd handoff is the load-bearing part in
-`wl_shm_pool` — that's where the `upstream_proxy` lookups in
-`engine/resource.zig` get exercised.
+### End-to-end compositor smoke
 
-### `wl_callback` and `wl_region`
-
-Small, finish out Phase 1 protocol coverage.
+Drive the current create-surface → shm buffer → attach → commit → embed
+flow against a headless compositor and assert the upstream calls land.
 
 ## Engine maturation
 
@@ -86,22 +75,17 @@ delete uses swap-and-pop per [dod.md](dod.md) § Entity Manager. Land
 this after the first delegates work; doing it earlier optimizes a path
 that no benchmark has yet pointed at.
 
-### Effect queue drain in `dispatch()`
+### ~~Effect queue drain in `dispatch()`~~
 
-`server.dispatch()` currently does nothing. After protocol delegates
-fire for a tick, drain the effect queue and translate each `Effect`
-into the matching `wayplug_host_interface` callback. Confirm the
-ordering matches [architecture.md](architecture.md) § Host
-Notifications.
+Done for current callbacks: client connect/close and surface-created
+effects drain synchronously from `wayplug_server_dispatch()`.
 
-### `on_protocol_error` host callback
+### ~~`on_protocol_error` host callback~~
 
-The `protocol_error` effect exists in `engine/effects.zig` but has no
-matching callback in `wayplug_host_interface`. Add the field to
-`include/wayplug.h` and wire it through the effect drain. The callback
-receives the `wayplug_client *` handle and the Wayland error code. Update
-`tests/c_abi_smoke.c` to cover the new field. See
-[logging.md](logging.md) § Planned Diagnostics Expansion.
+Done: `wayplug_host_interface` has an append-only
+`on_protocol_error` callback, the effect drain wires `protocol_error`
+effects through it, and ABI normalization accepts older callback-table
+sizes.
 
 ### Real snapshot copy and relationship invariants
 

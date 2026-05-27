@@ -7,6 +7,7 @@
 - [Style Guide](style-guide.md) — Zig style, C ABI rules, naming, ownership
 - [C ABI Sketch](c-abi-sketch.md) — provisional public C boundary
 - [Host Integration](host-integration.md) — Carla-style end-to-end walkthrough
+- [Logging](logging.md) — host-side lifecycle logging and diagnostics
 
 ## Context
 

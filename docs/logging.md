@@ -14,9 +14,9 @@ as callbacks.
 
 ## Current Callback Surface
 
-The `wayplug_host_interface` struct carries three lifecycle callbacks. All
-three fire synchronously from inside `wayplug_server_dispatch()` after the
-effect queue drains. A null function pointer is a no-op.
+The `wayplug_host_interface` struct carries lifecycle and diagnostics
+callbacks. They fire synchronously from inside `wayplug_server_dispatch()`
+after the effect queue drains. A null function pointer is a no-op.
 
 ```c
 void (*on_client_connected)(void *userdata, wayplug_client *client);
@@ -41,6 +41,15 @@ void (*on_client_closed)(void *userdata, wayplug_client *client);
 Fires after wayplug completes the full client teardown sequence (see
 [Architecture § Teardown Order](architecture.md#teardown-order)). After this
 callback returns, `client` is invalid and must not be dereferenced.
+
+```c
+void (*on_protocol_error)(void *userdata,
+                          wayplug_client *client,
+                          uint32_t code);
+```
+
+Fires when an internal `protocol_error` effect is queued for a client.
+`code` is the Wayland protocol error code recorded by the delegate.
 
 ### Constraints
 
@@ -107,7 +116,7 @@ it is not exposed by other callbacks. Use `client` as the correlation key.
 ## Planned Diagnostics Expansion
 
 The internal effect queue (see [DOD § Effects](dod.md#effects)) already
-tracks embed lifecycle and protocol errors:
+tracks embed lifecycle and diagnostics:
 
 ```
 embed_mapped(embed_id)
@@ -117,20 +126,19 @@ protocol_error(client_id, code)
 diagnostics_dirty
 ```
 
-These effects are not yet surfaced as `wayplug_host_interface` callbacks or
-snapshot API. When they are added, the callback struct gains:
+`protocol_error` is surfaced through `on_protocol_error`. The remaining
+effects are not yet exposed as callbacks or snapshot API. When they are
+added, the callback struct gains:
 
 - `on_embed_mapped` / `on_embed_resized` / `on_embed_destroyed` — embed
   lifecycle, keyed on embed id (a stable `uint32_t` that is not reused in a
   server's lifetime)
-- `on_protocol_error` — Wayland protocol error with client handle and
-  error code
 - `wayplug_server_snapshot` / `wayplug_snapshot_free` — allocating
   diagnostic snapshot of current server state
 
-Until then, embed and protocol-error evidence must be gathered from
-`on_client_closed` (all embeds for a client are torn down before this fires)
-or from internal Zig-side logs during development.
+Until then, embed evidence must be gathered from `on_client_closed` (all
+embeds for a client are torn down before this fires) or from internal
+Zig-side state during development.
 
 ## Developer and Agent Debugging Evidence
 
@@ -152,10 +160,9 @@ events together.
 the stable key for the embed's full lifecycle (mapped → resized → destroyed).
 Record these alongside the client handle.
 
-**Protocol error records** — a `protocol_error` effect carries the client id
-and the Wayland error code. Until the callback is exposed, reproduce with a
-test that calls `wayplug_server_dispatch` and checks internal state via
-`zig build test`.
+**Protocol error records** — `on_protocol_error` carries the client handle
+and Wayland error code. Log both so protocol failures can be correlated with
+connect, surface-created, and close events.
 
 **Client connect/disconnect logs** — the three current callbacks already
 bracket the full client lifecycle. Logging all three is sufficient to trace

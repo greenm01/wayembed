@@ -77,6 +77,10 @@ pub const Host = struct {
     pub fn onClientClosed(self: Host, client: ?*c_api.wayplug_client) void {
         if (self.iface.on_client_closed) |f| f(self.iface.userdata, client);
     }
+
+    pub fn onProtocolError(self: Host, client: ?*c_api.wayplug_client, code: u32) void {
+        if (self.iface.on_protocol_error) |f| f(self.iface.userdata, client, code);
+    }
 };
 
 // ===== production code above =====
@@ -96,6 +100,7 @@ test "Host wraps a null-callback interface as no-op" {
         .on_client_connected = null,
         .on_surface_created = null,
         .on_client_closed = null,
+        .on_protocol_error = null,
     };
     const h = Host.init(&iface);
     try std.testing.expect(h.getCompositor() == null);

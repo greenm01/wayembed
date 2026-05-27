@@ -204,6 +204,10 @@ pub const Server = struct {
                     const surface = self.upstreamSurfaceForId(created.surface_id);
                     self.host.onSurfaceCreated(opaqueClient(handle), surface);
                 },
+                .protocol_error => |err| {
+                    const handle = self.findClientHandleById(err.client_id);
+                    self.host.onProtocolError(opaqueClient(handle), err.code);
+                },
                 else => {},
             }
         }
@@ -771,6 +775,23 @@ fn subsurfaceSetDesync(_: ?*wls.wl_client, resource: ?*wls.wl_resource) callconv
 
 // ===== production code above =====
 
+const ProtocolErrorTestState = struct {
+    client: ?*c_api.wayplug_client = null,
+    code: u32 = 0,
+    calls: u32 = 0,
+};
+
+fn recordProtocolError(
+    userdata: ?*anyopaque,
+    client: ?*c_api.wayplug_client,
+    code: u32,
+) callconv(.c) void {
+    const state: *ProtocolErrorTestState = @ptrCast(@alignCast(userdata.?));
+    state.client = client;
+    state.code = code;
+    state.calls += 1;
+}
+
 test "Server create and destroy is balanced" {
     const iface = c_api.WayplugHostInterface{
         .size = @sizeOf(c_api.WayplugHostInterface),
@@ -786,8 +807,46 @@ test "Server create and destroy is balanced" {
         .on_client_connected = null,
         .on_surface_created = null,
         .on_client_closed = null,
+        .on_protocol_error = null,
     };
     const s = try Server.create(std.testing.allocator, &iface, null);
     defer s.destroy();
     try std.testing.expect(s.getFd() >= 0);
+}
+
+test "protocol_error effect drains to host callback" {
+    var state = ProtocolErrorTestState{};
+    const iface = c_api.WayplugHostInterface{
+        .size = @sizeOf(c_api.WayplugHostInterface),
+        .version = c_api.abi_version,
+        .userdata = &state,
+        .get_compositor = null,
+        .get_subcompositor = null,
+        .get_shm = null,
+        .get_seat = null,
+        .get_xdg_wm_base = null,
+        .get_dmabuf = null,
+        .get_subsurface_offset = null,
+        .on_client_connected = null,
+        .on_surface_created = null,
+        .on_client_closed = null,
+        .on_protocol_error = recordProtocolError,
+    };
+    const s = try Server.create(std.testing.allocator, &iface, null);
+    defer s.destroy();
+
+    _ = s.openClientDisplay() orelse return error.OpenClientDisplayFailed;
+    const handle = s.client_handles.items[0];
+    s.engine.effects.clear();
+    try s.engine.effects.push(.{
+        .protocol_error = .{
+            .client_id = handle.client_id,
+            .code = 77,
+        },
+    });
+
+    s.dispatch();
+    try std.testing.expectEqual(@as(u32, 1), state.calls);
+    try std.testing.expectEqual(@as(u32, 77), state.code);
+    try std.testing.expect(state.client == opaqueClient(handle));
 }

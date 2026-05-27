@@ -42,7 +42,64 @@ pub const WayplugHostInterface = extern struct {
     on_client_connected: ?*const fn (?*anyopaque, ?*wayplug_client) callconv(.c) void,
     on_surface_created: ?*const fn (?*anyopaque, ?*wayplug_client, ?*wlp.wl_surface) callconv(.c) void,
     on_client_closed: ?*const fn (?*anyopaque, ?*wayplug_client) callconv(.c) void,
+    on_protocol_error: ?*const fn (?*anyopaque, ?*wayplug_client, u32) callconv(.c) void,
 };
+
+const minimum_host_interface_size = @offsetOf(WayplugHostInterface, "userdata") +
+    @sizeOf(?*anyopaque);
+
+pub fn normalizeHostInterface(host: *const WayplugHostInterface) ?WayplugHostInterface {
+    if (host.size < minimum_host_interface_size) return null;
+    if (host.version != abi_version) return null;
+
+    var normalized = emptyHostInterface();
+    normalized.size = @sizeOf(WayplugHostInterface);
+    normalized.version = abi_version;
+    copyHostField(&normalized, host, "userdata");
+    copyHostField(&normalized, host, "get_compositor");
+    copyHostField(&normalized, host, "get_subcompositor");
+    copyHostField(&normalized, host, "get_shm");
+    copyHostField(&normalized, host, "get_seat");
+    copyHostField(&normalized, host, "get_xdg_wm_base");
+    copyHostField(&normalized, host, "get_dmabuf");
+    copyHostField(&normalized, host, "get_subsurface_offset");
+    copyHostField(&normalized, host, "on_client_connected");
+    copyHostField(&normalized, host, "on_surface_created");
+    copyHostField(&normalized, host, "on_client_closed");
+    copyHostField(&normalized, host, "on_protocol_error");
+    return normalized;
+}
+
+fn emptyHostInterface() WayplugHostInterface {
+    return .{
+        .size = @sizeOf(WayplugHostInterface),
+        .version = abi_version,
+        .userdata = null,
+        .get_compositor = null,
+        .get_subcompositor = null,
+        .get_shm = null,
+        .get_seat = null,
+        .get_xdg_wm_base = null,
+        .get_dmabuf = null,
+        .get_subsurface_offset = null,
+        .on_client_connected = null,
+        .on_surface_created = null,
+        .on_client_closed = null,
+        .on_protocol_error = null,
+    };
+}
+
+fn copyHostField(
+    normalized: *WayplugHostInterface,
+    host: *const WayplugHostInterface,
+    comptime field_name: []const u8,
+) void {
+    const Field = @TypeOf(@field(normalized, field_name));
+    const end = @offsetOf(WayplugHostInterface, field_name) + @sizeOf(Field);
+    if (host.size >= end) {
+        @field(normalized, field_name) = @field(host.*, field_name);
+    }
+}
 
 // ===== Exports =====
 
@@ -55,9 +112,8 @@ export fn wayplug_server_create(
     queue: ?*wlc.wl_event_queue,
 ) callconv(.c) ?*server_mod.Server {
     const iface = host orelse return null;
-    if (iface.version != abi_version) return null;
-    if (iface.size < @sizeOf(WayplugHostInterface)) return null;
-    return server_mod.Server.create(std.heap.c_allocator, iface, queue) catch null;
+    const normalized = normalizeHostInterface(iface) orelse return null;
+    return server_mod.Server.create(std.heap.c_allocator, &normalized, queue) catch null;
 }
 
 export fn wayplug_server_destroy(server: ?*server_mod.Server) callconv(.c) void {
@@ -150,4 +206,18 @@ test "Server null-handle is tolerated" {
     wayplug_server_destroy(null);
     try std.testing.expect(wayplug_server_get_fd(null) == -1);
     try std.testing.expect(!wayplug_server_close_client_display(null, null));
+}
+
+test "host interface normalization accepts older append-only sizes" {
+    var iface = emptyHostInterface();
+    iface.size = @offsetOf(WayplugHostInterface, "on_protocol_error");
+    const normalized = normalizeHostInterface(&iface).?;
+    try std.testing.expectEqual(@sizeOf(WayplugHostInterface), normalized.size);
+    try std.testing.expect(normalized.on_protocol_error == null);
+}
+
+test "host interface normalization rejects too-small structs" {
+    var iface = emptyHostInterface();
+    iface.size = minimum_host_interface_size - 1;
+    try std.testing.expect(normalizeHostInterface(&iface) == null);
 }

@@ -49,6 +49,9 @@ typedef struct wayplug_host_interface {
                                wayplug_client *client,
                                struct wl_surface *plugin_child_surface);
     void (*on_client_closed)(void *userdata, wayplug_client *client);
+    void (*on_protocol_error)(void *userdata,
+                              wayplug_client *client,
+                              uint32_t code);
 } wayplug_host_interface;
 
 uint32_t wayplug_abi_version(void);
