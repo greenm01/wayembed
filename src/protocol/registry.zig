@@ -4,6 +4,7 @@
 const std = @import("std");
 const compositor_protocol = @import("compositor.zig");
 const runtime = @import("runtime.zig");
+const seat_protocol = @import("seat.zig");
 const shm_protocol = @import("shm.zig");
 const subcompositor_protocol = @import("subcompositor.zig");
 const wls = @import("../wayland/server.zig");
@@ -22,6 +23,7 @@ pub fn selectVersion(requested: u32, advertised_max: u32) ?u32 {
 pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
     const H = runtime.Helpers(Server, ResourceData);
     const compositor_bindings = compositor_protocol.Bindings(Server, ResourceData);
+    const seat_bindings = seat_protocol.Bindings(Server, ResourceData);
     const shm_bindings = shm_protocol.Bindings(Server, ResourceData);
     const subcompositor_bindings = subcompositor_protocol.Bindings(Server, ResourceData);
 
@@ -95,6 +97,30 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
             ) orelse return;
             wls.c.wl_shm_send_format(resource, wls.c.WL_SHM_FORMAT_ARGB8888);
             wls.c.wl_shm_send_format(resource, wls.c.WL_SHM_FORMAT_XRGB8888);
+        }
+
+        pub fn bindSeat(client: ?*wls.wl_client, data: ?*anyopaque, version: u32, id: u32) callconv(.c) void {
+            const server = H.serverFromData(data) orelse return;
+            const wl_client = client orelse return;
+            const selected_version = selectVersion(version, 4) orelse {
+                server.protocolErrorForClient(wl_client, invalid_method);
+                return;
+            };
+            const seat = server.host.getSeat() orelse {
+                server.protocolErrorForClient(wl_client, implementation_error);
+                return;
+            };
+            const resource = server.createResource(
+                wl_client,
+                .seat,
+                &wls.c.wl_seat_interface,
+                selected_version,
+                id,
+                @ptrCast(&seat_bindings.impl),
+                @ptrCast(seat),
+            ) orelse return;
+            wls.c.wl_seat_send_capabilities(resource, wls.c.WL_SEAT_CAPABILITY_POINTER);
+            if (selected_version >= 2) wls.c.wl_seat_send_name(resource, "wayplug-seat");
         }
     };
 }

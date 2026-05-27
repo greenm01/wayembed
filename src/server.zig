@@ -34,6 +34,8 @@ pub const ResourceData = struct {
     wl_resource: *wls.wl_resource,
     kind: types.ResourceKind,
     upstream_proxy: ?*wlc.wl_proxy,
+    pointer_focus_surface: ?*wls.wl_resource = null,
+    pointer_focus_upstream_surface: ?*wlp.wl_surface = null,
 };
 
 pub const Server = struct {
@@ -257,6 +259,9 @@ pub const Server = struct {
         if (self.host.getShm() != null) {
             try self.registerGlobal(&wls.c.wl_shm_interface, 1, registry_bindings.bindShm);
         }
+        if (self.host.getSeat() != null) {
+            try self.registerGlobal(&wls.c.wl_seat_interface, 4, registry_bindings.bindSeat);
+        }
     }
 
     fn registerGlobal(
@@ -394,6 +399,42 @@ pub const Server = struct {
         const proxy = self.engine.upstreamProxyForResource(surface.resource_id) orelse return null;
         return @ptrCast(proxy);
     }
+
+    pub fn surfaceResourceForUpstreamSurface(self: *Server, surface: *wlp.wl_surface) ?*wls.wl_resource {
+        const resource_id = self.engine.resourceForUpstreamProxy(@ptrCast(surface)) orelse return null;
+        const resource = self.engine.model.resources.get(resource_id) orelse return null;
+        return resource.wl_resource;
+    }
+
+    pub const PointerCoords = struct {
+        x: wls.c.wl_fixed_t,
+        y: wls.c.wl_fixed_t,
+    };
+
+    pub fn translatePointerCoords(
+        self: *Server,
+        client_id: types.ClientId,
+        upstream_surface: *wlp.wl_surface,
+        x: wls.c.wl_fixed_t,
+        y: wls.c.wl_fixed_t,
+    ) PointerCoords {
+        var translated: PointerCoords = .{ .x = x, .y = y };
+        const child_resource_id = self.engine.resourceForUpstreamProxy(@ptrCast(upstream_surface)) orelse return translated;
+        const child_surface_id = self.engine.surfaceForResource(child_resource_id) orelse return translated;
+        const embed_id = self.engine.model.embed_by_child_surface.get(child_surface_id) orelse return translated;
+        const embed = self.engine.model.embeds.get(embed_id) orelse return translated;
+        const handle = self.findClientHandleById(client_id) orelse return translated;
+        const display = handle.display orelse return translated;
+        const parent = self.surfaceForModelId(embed.host_parent_surface_id) orelse return translated;
+        const child = self.surfaceForModelId(embed.plugin_child_surface_id) orelse return translated;
+
+        var offset_x: i32 = 0;
+        var offset_y: i32 = 0;
+        if (!self.host.getSubsurfaceOffset(&offset_x, &offset_y, display, parent, child)) return translated;
+        translated.x -= wlc.c.wl_fixed_from_int(offset_x);
+        translated.y -= wlc.c.wl_fixed_from_int(offset_y);
+        return translated;
+    }
 };
 
 fn opaqueClient(handle: ?*ClientHandle) ?*c_api.wayplug_client {
@@ -430,6 +471,7 @@ const RegistryTestState = struct {
     compositor_enabled: bool = false,
     subcompositor_enabled: bool = false,
     shm_enabled: bool = false,
+    seat_enabled: bool = false,
 };
 
 fn fakeCompositor(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_compositor {
@@ -450,6 +492,12 @@ fn fakeShm(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_shm {
     return @ptrFromInt(0x3000);
 }
 
+fn fakeSeat(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_seat {
+    const state: *RegistryTestState = @ptrCast(@alignCast(userdata.?));
+    if (!state.seat_enabled) return null;
+    return @ptrFromInt(0x4000);
+}
+
 fn testHostInterface(userdata: ?*anyopaque) c_api.WayplugHostInterface {
     return .{
         .size = @sizeOf(c_api.WayplugHostInterface),
@@ -458,7 +506,7 @@ fn testHostInterface(userdata: ?*anyopaque) c_api.WayplugHostInterface {
         .get_compositor = fakeCompositor,
         .get_subcompositor = fakeSubcompositor,
         .get_shm = fakeShm,
-        .get_seat = null,
+        .get_seat = fakeSeat,
         .get_xdg_wm_base = null,
         .get_dmabuf = null,
         .get_subsurface_offset = null,
@@ -627,6 +675,16 @@ test "server registers only host-supplied globals" {
     try std.testing.expectEqual(@as(usize, 2), s.globals.items.len);
     try std.testing.expectEqual(@as(u32, 4), wls.c.wl_global_get_version(s.globals.items[0]));
     try std.testing.expectEqual(@as(u32, 1), wls.c.wl_global_get_version(s.globals.items[1]));
+}
+
+test "server registers host-supplied seat global" {
+    var state = RegistryTestState{ .seat_enabled = true };
+    const iface = testHostInterface(&state);
+    const s = try Server.create(std.testing.allocator, &iface, null);
+    defer s.destroy();
+
+    try std.testing.expectEqual(@as(usize, 1), s.globals.items.len);
+    try std.testing.expectEqual(@as(u32, 4), wls.c.wl_global_get_version(s.globals.items[0]));
 }
 
 test "invalid registry bind queues protocol error without resource" {

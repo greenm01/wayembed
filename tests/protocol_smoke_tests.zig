@@ -41,6 +41,7 @@ test "active protocol bindings instantiate against server runtime" {
     _ = Registry.bindCompositor;
     _ = Registry.bindSubcompositor;
     _ = Registry.bindShm;
+    _ = Registry.bindSeat;
 
     const Compositor = wayplug.protocol.compositor.Bindings(Server, ResourceData);
     _ = Compositor.impl;
@@ -61,18 +62,26 @@ test "active protocol bindings instantiate against server runtime" {
     _ = Callback.listener;
     const Region = wayplug.protocol.region.Bindings(Server, ResourceData);
     _ = Region.impl;
+    const Seat = wayplug.protocol.seat.Bindings(Server, ResourceData);
+    _ = Seat.impl;
+    const Pointer = wayplug.protocol.pointer.Bindings(Server, ResourceData);
+    _ = Pointer.impl;
+    _ = Pointer.listener;
 }
 
 const RegistryState = struct {
     compositor: ?*wlp.wl_compositor = null,
     subcompositor: ?*wlp.wl_subcompositor = null,
     shm: ?*wlp.wl_shm = null,
+    seat: ?*wlp.wl_seat = null,
+    seat_capabilities: u32 = 0,
 };
 
 const HostSmokeState = struct {
     compositor: ?*wlp.wl_compositor = null,
     subcompositor: ?*wlp.wl_subcompositor = null,
     shm: ?*wlp.wl_shm = null,
+    seat: ?*wlp.wl_seat = null,
     parent_surface: ?*wlp.wl_surface = null,
     surface_created_count: std.atomic.Value(u32) = .init(0),
     embed_attached: std.atomic.Value(bool) = .init(false),
@@ -102,6 +111,11 @@ const shm_listener = wlc.struct_wl_shm_listener{
     .format = shmFormat,
 };
 
+const seat_listener = wlc.struct_wl_seat_listener{
+    .capabilities = seatCapabilities,
+    .name = seatName,
+};
+
 fn registryGlobal(
     data: ?*anyopaque,
     registry: ?*wlc.struct_wl_registry,
@@ -124,6 +138,11 @@ fn registryGlobal(
         const shm: *wlp.wl_shm = @ptrCast(bound);
         state.shm = shm;
         _ = wlc.wl_shm_add_listener(shm, &shm_listener, state);
+    } else if (std.mem.eql(u8, interface_name, "wl_seat")) {
+        const bound = wlc.wl_registry_bind(reg, name, &wlc.wl_seat_interface, @min(version, 4)) orelse return;
+        const seat: *wlp.wl_seat = @ptrCast(bound);
+        state.seat = seat;
+        _ = wlc.wl_seat_add_listener(seat, &seat_listener, state);
     }
 }
 
@@ -134,6 +153,13 @@ fn registryGlobalRemove(
 ) callconv(.c) void {}
 
 fn shmFormat(_: ?*anyopaque, _: ?*wlp.wl_shm, _: u32) callconv(.c) void {}
+
+fn seatCapabilities(data: ?*anyopaque, _: ?*wlp.wl_seat, capabilities: u32) callconv(.c) void {
+    const state: *RegistryState = @ptrCast(@alignCast(data orelse return));
+    state.seat_capabilities = capabilities;
+}
+
+fn seatName(_: ?*anyopaque, _: ?*wlp.wl_seat, _: [*c]const u8) callconv(.c) void {}
 
 fn hostCompositor(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_compositor {
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return null));
@@ -148,6 +174,11 @@ fn hostSubcompositor(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_subcompositor 
 fn hostShm(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_shm {
     const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return null));
     return state.shm;
+}
+
+fn hostSeat(userdata: ?*anyopaque) callconv(.c) ?*wlp.wl_seat {
+    const state: *HostSmokeState = @ptrCast(@alignCast(userdata orelse return null));
+    return state.seat;
 }
 
 fn hostSubsurfaceOffset(
@@ -256,6 +287,7 @@ test "weston headless smoke forwards create attach commit and embed" {
         .compositor = host_registry_state.compositor,
         .subcompositor = host_registry_state.subcompositor,
         .shm = host_registry_state.shm,
+        .seat = host_registry_state.seat,
         .parent_surface = parent_surface,
     };
     const iface = wayplug.c_api.WayplugHostInterface{
@@ -265,7 +297,7 @@ test "weston headless smoke forwards create attach commit and embed" {
         .get_compositor = hostCompositor,
         .get_subcompositor = hostSubcompositor,
         .get_shm = hostShm,
-        .get_seat = null,
+        .get_seat = hostSeat,
         .get_xdg_wm_base = null,
         .get_dmabuf = null,
         .get_subsurface_offset = hostSubsurfaceOffset,
@@ -289,6 +321,10 @@ test "weston headless smoke forwards create attach commit and embed" {
     }
 
     const plugin_registry_state = try bindCoreGlobals(plugin_display);
+    if (host_registry_state.seat != null) {
+        try std.testing.expect(plugin_registry_state.seat != null);
+        try std.testing.expect((plugin_registry_state.seat_capabilities & wlc.WL_SEAT_CAPABILITY_POINTER) != 0);
+    }
     const plugin_surface = wlc.wl_compositor_create_surface(plugin_registry_state.compositor.?) orelse return error.CreatePluginSurfaceFailed;
     defer wlc.wl_surface_destroy(plugin_surface);
     try flushDisplay(plugin_display);
@@ -316,7 +352,8 @@ test "weston headless smoke forwards create attach commit and embed" {
     try std.testing.expectEqual(@as(usize, 1), server.engine.model.embeds.count());
     try std.testing.expectEqual(@as(usize, 2), server.engine.model.surfaces.count());
     try std.testing.expectEqual(@as(usize, 1), server.engine.model.buffers.count());
-    try std.testing.expectEqual(@as(usize, 7), server.engine.model.resources.count());
+    const expected_resource_count: usize = if (plugin_registry_state.seat != null) 8 else 7;
+    try std.testing.expectEqual(expected_resource_count, server.engine.model.resources.count());
     try std.testing.expectEqual(@as(c_int, 0), wlc.wl_display_get_error(plugin_display));
     try std.testing.expectEqual(@as(c_int, 0), wlc.wl_display_get_error(host_display));
 
@@ -333,6 +370,7 @@ fn bindCoreGlobals(display: *wlc.struct_wl_display) !RegistryState {
     if (state.compositor == null or state.subcompositor == null or state.shm == null) {
         return error.MissingCoreGlobals;
     }
+    try roundtripDisplay(display);
     return state;
 }
 

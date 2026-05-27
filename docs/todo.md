@@ -25,20 +25,15 @@ complete:
 - relationship invariants check dense tables, indexes, and cross-table
   references.
 - embed lifecycle callbacks are exposed as append-only host callbacks.
+- embedded pointer enter/motion coordinates are translated through the host
+  subsurface-offset callback.
 
 ## Phase 2: Embedded UI working
 
-### Embed input coordinate translation
+### `wl_keyboard`
 
-`protocol/pointer.zig` listener uses `host.getSubsurfaceOffset()` to
-translate compositor-space pointer coordinates into plugin-surface
-coordinates. The C++ reference's seat handling is the prior-art map.
-Without this, plugins under nested embedding receive pointer events in the
-wrong frame.
-
-### `wl_seat`, `wl_pointer`, `wl_keyboard`
-
-Pointer first, keyboard second. Touch can wait. Per
+Pointer-capable `wl_seat` and `wl_pointer` forwarding exist for embedded
+coordinate translation. Keyboard is next; touch can wait. Per
 [protocol-landscape.md](protocol-landscape.md).
 
 ### `xdg_wm_base`, `xdg_surface`, `xdg_toplevel`, `xdg_popup`
