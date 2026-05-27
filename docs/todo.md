@@ -38,6 +38,7 @@ complete:
 - the embedded editor session lifecycle is formalized around
   client-scoped attach, resize, and teardown, with attach allowed from
   `on_surface_created`.
+- GitHub Actions runs the pinned Zig formatter and test suite on Linux.
 
 ## Tests and CI
 
@@ -49,9 +50,9 @@ those environments.
 
 ### CI
 
-GitHub Actions: pinned Zig version, `zig fmt --check` and `zig build test` on
-Linux. Expand to a compositor matrix (Weston, Mutter, KWin, River) once smoke
-tests need it.
+Baseline GitHub Actions coverage exists with a pinned Zig version,
+`zig fmt --check`, and `zig build test` on Linux. Expand to a compositor
+matrix (Weston, Mutter, KWin, River) once smoke tests need it.
 
 ### Fuzz and protocol-error tests
 
