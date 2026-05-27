@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <math.h>
+#include <string.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -230,21 +232,43 @@ int main(void)
         handoff.version != WAYEMBED_ADAPTER_ABI_VERSION ||
         handoff.format != WAYEMBED_ADAPTER_FORMAT_CLAP ||
         handoff.display != display ||
-        handoff.format_token == NULL) {
+        handoff.format_token == NULL ||
+        strcmp(handoff.format_token, WAYEMBED_ADAPTER_CLAP_EXPERIMENTAL_API) != 0) {
         wayembed_server_destroy(server);
         return 20;
+    }
+    handoff.format_token = WAYEMBED_ADAPTER_LV2_EXPERIMENTAL_URI;
+    if (wayembed_adapter_handoff_validate(&handoff)) {
+        wayembed_server_destroy(server);
+        return 21;
+    }
+    if (!wayembed_adapter_handoff_init(&handoff,
+        WAYEMBED_ADAPTER_FORMAT_LV2,
+        server,
+        display)) {
+        wayembed_server_destroy(server);
+        return 22;
+    }
+    if (!wayembed_adapter_handoff_validate(&handoff) ||
+        handoff.version != WAYEMBED_ADAPTER_ABI_VERSION ||
+        handoff.format != WAYEMBED_ADAPTER_FORMAT_LV2 ||
+        handoff.display != display ||
+        handoff.format_token == NULL ||
+        strcmp(handoff.format_token, WAYEMBED_ADAPTER_LV2_EXPERIMENTAL_URI) != 0) {
+        wayembed_server_destroy(server);
+        return 23;
     }
     handoff.version = WAYEMBED_ADAPTER_ABI_VERSION + 1u;
     if (wayembed_adapter_handoff_validate(&handoff)) {
         wayembed_server_destroy(server);
-        return 21;
+        return 24;
     }
     if (wayembed_adapter_handoff_init(&handoff,
                                      WAYEMBED_ADAPTER_FORMAT_UNKNOWN,
                                      server,
                                      display)) {
         wayembed_server_destroy(server);
-        return 22;
+        return 25;
     }
 
     wayembed_adapter_resize resize;
@@ -255,40 +279,56 @@ int main(void)
     resize.scale = 1.0;
     if (!wayembed_adapter_resize_validate(&resize)) {
         wayembed_server_destroy(server);
-        return 23;
+        return 26;
     }
     resize.width = -1;
     if (wayembed_adapter_resize_validate(&resize)) {
         wayembed_server_destroy(server);
-        return 24;
+        return 27;
+    }
+    resize.width = 640;
+    resize.scale = 0.0;
+    if (wayembed_adapter_resize_validate(&resize)) {
+        wayembed_server_destroy(server);
+        return 28;
+    }
+    resize.scale = INFINITY;
+    if (wayembed_adapter_resize_validate(&resize)) {
+        wayembed_server_destroy(server);
+        return 29;
+    }
+    resize.scale = NAN;
+    if (wayembed_adapter_resize_validate(&resize)) {
+        wayembed_server_destroy(server);
+        return 30;
     }
 
     wayembed_snapshot *open_snapshot = wayembed_server_snapshot(server);
     if (open_snapshot == NULL) {
         wayembed_server_destroy(server);
-        return 25;
+        return 31;
     }
     size_t open_clients = 0;
     if (!snapshot_clients(open_snapshot, &open_clients) || open_clients != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 26;
+        return 32;
     }
     if (!wayembed_server_close_client_display(server, display)) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 27;
+        return 33;
     }
     wayembed_server_dispatch(server);
     if (closed_count != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 28;
+        return 34;
     }
     if (mapped_count != 0 || resized_count != 0 || destroyed_count != 0) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 29;
+        return 35;
     }
 
     size_t still_open_clients = 0;
@@ -296,21 +336,21 @@ int main(void)
         still_open_clients != 1) {
         wayembed_snapshot_free(open_snapshot);
         wayembed_server_destroy(server);
-        return 30;
+        return 36;
     }
     wayembed_snapshot_free(open_snapshot);
 
     wayembed_snapshot *closed_snapshot = wayembed_server_snapshot(server);
     if (closed_snapshot == NULL) {
         wayembed_server_destroy(server);
-        return 31;
+        return 37;
     }
     size_t closed_clients = 99;
     if (!snapshot_clients(closed_snapshot, &closed_clients) ||
         closed_clients != 0) {
         wayembed_snapshot_free(closed_snapshot);
         wayembed_server_destroy(server);
-        return 32;
+        return 38;
     }
     wayembed_snapshot_free(closed_snapshot);
 
@@ -318,43 +358,43 @@ int main(void)
     wayembed_client *fd_client = NULL;
     if (wayembed_server_open_client_fd(NULL, &fd_client) != -1) {
         wayembed_server_destroy(server);
-        return 33;
+        return 39;
     }
     if (wayembed_server_open_client_fd(server, NULL) != -1) {
         wayembed_server_destroy(server);
-        return 34;
+        return 40;
     }
     if (wayembed_server_close_client(NULL, NULL)) {
         wayembed_server_destroy(server);
-        return 35;
+        return 41;
     }
 
     int client_fd = wayembed_server_open_client_fd(server, &fd_client);
     if (client_fd < 0 || fd_client == NULL) {
         wayembed_server_destroy(server);
-        return 36;
+        return 42;
     }
     wayembed_server_dispatch(server);
     if (connected_count != 2 || last_client != fd_client) {
         close(client_fd);
         wayembed_server_destroy(server);
-        return 37;
+        return 43;
     }
     if (!wayembed_server_close_client(server, fd_client)) {
         close(client_fd);
         wayembed_server_destroy(server);
-        return 38;
+        return 44;
     }
     if (wayembed_server_close_client(server, fd_client)) {
         close(client_fd);
         wayembed_server_destroy(server);
-        return 39;
+        return 45;
     }
     close(client_fd);
     wayembed_server_dispatch(server);
     if (closed_count != 2) {
         wayembed_server_destroy(server);
-        return 40;
+        return 46;
     }
 
     /* fd handoff cycle, remote fd close. */
@@ -362,19 +402,19 @@ int main(void)
     client_fd = wayembed_server_open_client_fd(server, &fd_client);
     if (client_fd < 0 || fd_client == NULL) {
         wayembed_server_destroy(server);
-        return 41;
+        return 47;
     }
     wayembed_server_dispatch(server);
     if (connected_count != 3 || last_client != fd_client) {
         close(client_fd);
         wayembed_server_destroy(server);
-        return 42;
+        return 48;
     }
     close(client_fd);
     wayembed_server_dispatch(server);
     if (closed_count != 3) {
         wayembed_server_destroy(server);
-        return 43;
+        return 49;
     }
 
     /* Embed operations reject invalid handles and structs with status codes. */
@@ -382,7 +422,7 @@ int main(void)
     if (wayembed_embed_attach(NULL, &embed) !=
         WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
         wayembed_server_destroy(server);
-        return 44;
+        return 50;
     }
     wayembed_embed_attach_info attach_info;
     attach_info.size = offsetof(wayembed_embed_attach_info, child_surface);
@@ -393,24 +433,24 @@ int main(void)
     if (wayembed_embed_attach(&attach_info, &embed) !=
         WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
         wayembed_server_destroy(server);
-        return 45;
+        return 51;
     }
     attach_info.size = sizeof(attach_info);
     attach_info.version = WAYEMBED_ABI_VERSION + 1u;
     if (wayembed_embed_attach(&attach_info, &embed) !=
         WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
         wayembed_server_destroy(server);
-        return 46;
+        return 52;
     }
     if (wayembed_embed_resize(NULL, 0, 0) !=
         WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT) {
         wayembed_server_destroy(server);
-        return 47;
+        return 53;
     }
     if (wayembed_embed_id(NULL) != 0 ||
         wayembed_embed_client(NULL) != NULL) {
         wayembed_server_destroy(server);
-        return 48;
+        return 54;
     }
 
     wayembed_server_destroy(server);

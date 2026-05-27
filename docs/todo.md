@@ -41,6 +41,8 @@ current Phase 2 embedded UI path are complete:
   `wayembed_embed *` handles, with attach allowed from `on_surface_created`.
 - Phase 3 has a dependency-free experimental adapter contract for CLAP/LV2
   handoff tokens and validated display/resize structs.
+- `wayembed-sandbox` proves the Phase 3 C ABI from Nim with CLAP-shaped and
+  LV2-shaped handoff order smokes plus a live embed smoke.
 - GitHub Actions runs the pinned Zig formatter, default test suite, and a
   required Weston smoke path on Linux.
 
@@ -79,8 +81,9 @@ Per [roadmap.md](roadmap.md) Phase 4. Defer until lifecycle is stable.
 
 Per [roadmap.md](roadmap.md) Phase 3. The core stays format-neutral; the
 first experimental handoff contract lives in `include/wayembed_adapters.h`
-and [adapter-contract.md](adapter-contract.md). Full CLAP/LV2 runtime
-helpers and examples remain future work.
+and [adapter-contract.md](adapter-contract.md). `wayembed-sandbox` is the
+current proof harness. Full CLAP/LV2 runtime helpers and real host
+integrations remain future work.
 
 ### Linux dmabuf
 

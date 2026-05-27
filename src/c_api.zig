@@ -292,8 +292,9 @@ export fn wayembed_adapter_handoff_validate(
     if (h.size < @sizeOf(WayembedAdapterHandoff)) return false;
     if (h.version != adapter_abi_version) return false;
     if (h.server == null or h.display == null) return false;
-    if (adapterToken(h.format) == null) return false;
-    return h.format_token != null;
+    const expected_token = adapterToken(h.format) orelse return false;
+    const actual_token = h.format_token orelse return false;
+    return std.mem.eql(u8, std.mem.span(expected_token), std.mem.span(actual_token));
 }
 
 export fn wayembed_adapter_resize_validate(
@@ -303,7 +304,7 @@ export fn wayembed_adapter_resize_validate(
     if (r.size < @sizeOf(WayembedAdapterResize)) return false;
     if (r.version != adapter_abi_version) return false;
     if (r.width < 0 or r.height < 0) return false;
-    return r.scale > 0;
+    return std.math.isFinite(r.scale) and r.scale > 0;
 }
 
 export fn wayembed_server_create(
@@ -571,6 +572,13 @@ test "adapter handoff initialization validates inputs" {
     try std.testing.expectEqual(adapter_abi_version, handoff.version);
     try std.testing.expectEqual(adapter_format_clap, handoff.format);
 
+    handoff.format_token = adapter_lv2_token;
+    try std.testing.expect(!wayembed_adapter_handoff_validate(&handoff));
+
+    try std.testing.expect(wayembed_adapter_handoff_init(&handoff, adapter_format_lv2, server, display));
+    try std.testing.expect(wayembed_adapter_handoff_validate(&handoff));
+    try std.testing.expectEqual(adapter_format_lv2, handoff.format);
+
     handoff.version = adapter_abi_version + 1;
     try std.testing.expect(!wayembed_adapter_handoff_validate(&handoff));
 }
@@ -588,6 +596,10 @@ test "adapter resize validation rejects invalid dimensions" {
     try std.testing.expect(!wayembed_adapter_resize_validate(&resize));
     resize.width = 320;
     resize.scale = 0;
+    try std.testing.expect(!wayembed_adapter_resize_validate(&resize));
+    resize.scale = std.math.inf(f64);
+    try std.testing.expect(!wayembed_adapter_resize_validate(&resize));
+    resize.scale = std.math.nan(f64);
     try std.testing.expect(!wayembed_adapter_resize_validate(&resize));
 }
 

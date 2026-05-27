@@ -53,11 +53,13 @@ Initial smoke coverage:
 
 ## Phase 3: Plugin Format Adapters
 
-- Experimental CLAP extension mapping: starter contract in
-  `include/wayembed_adapters.h`.
-- Experimental LV2 extension mapping: starter contract in
-  `include/wayembed_adapters.h`.
-- Tiny host/plugin examples.
+- Experimental CLAP extension mapping: starter contract exists in
+  `include/wayembed_adapters.h`; `wayembed-sandbox` covers the handoff order.
+- Experimental LV2 extension mapping: starter contract exists in
+  `include/wayembed_adapters.h`; `wayembed-sandbox` covers the feature handoff
+  order.
+- Tiny host/plugin examples: `wayembed-sandbox` opens a live host surface and
+  embeds one plugin-created surface through the C ABI.
 - Carla-oriented integration notes.
 
 ## Phase 4: Performance and Completeness
