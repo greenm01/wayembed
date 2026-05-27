@@ -16,9 +16,9 @@ complete:
 - protocol delegates live under `src/protocol/`.
 - registry/global binding validates versions and reports protocol errors.
 - client teardown clears embeds, surfaces, buffers, resources, and indexes.
-- Weston, River, Mutter, and Niri smoke cover create-surface, shm buffer,
-  attach, commit, embed attach, and resize through a shared compositor
-  harness.
+- Weston, River, Mutter, Niri, and KWin smoke cover create-surface, shm
+  buffer, attach, commit, embed attach, and resize through a shared
+  compositor harness.
 - `EntityManager` uses dense storage with sparse id lookup.
 - effects drain from `wayplug_server_dispatch()`.
 - `on_protocol_error` is exposed through the host interface.
@@ -45,10 +45,10 @@ complete:
 
 ### Engine end-to-end smoke tests
 
-Weston, River, and Mutter headless coverage exists in
+Weston, River, Mutter, and KWin headless or virtual coverage exists in
 `tests/protocol_smoke_tests.zig`; Niri nested coverage exists when a parent
-display is available. Add KWin and Hyprland coverage once reliable headless
-or nested test invocations are available.
+display is available. Add Hyprland coverage once a reliable headless or
+nested test invocation is available.
 
 Hyprland 0.55.2 is installed on the CachyOS dev machine, but is not yet
 usable as a smoke target: isolated headless startup fails before creating a

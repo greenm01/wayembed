@@ -96,6 +96,7 @@ fn removeSmokeEnvironment(run: *std.Build.Step.Run) void {
     run.removeEnvironmentVariable("WAYPLUG_RIVER_BIN");
     run.removeEnvironmentVariable("WAYPLUG_MUTTER_BIN");
     run.removeEnvironmentVariable("WAYPLUG_NIRI_BIN");
+    run.removeEnvironmentVariable("WAYPLUG_KWIN_BIN");
 }
 
 const XdgProtocol = struct {

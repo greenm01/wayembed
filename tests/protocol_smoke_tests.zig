@@ -20,6 +20,7 @@ const SmokeCompositor = enum {
     river,
     mutter,
     niri,
+    kwin,
 };
 
 const SmokeFilter = enum {
@@ -28,6 +29,7 @@ const SmokeFilter = enum {
     river,
     mutter,
     niri,
+    kwin,
     all,
 };
 
@@ -532,6 +534,42 @@ test "niri smoke forwards create attach commit and embed" {
     });
 }
 
+test "kwin virtual smoke forwards create attach commit and embed" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    const filter = smokeFilter();
+    if (!smokeSelected(filter, .kwin)) return error.SkipZigTest;
+
+    const nonce = c.getpid();
+    const socket_name = try std.fmt.allocPrintSentinel(allocator, "wayplug-kwin-smoke-{d}", .{nonce}, 0);
+    defer allocator.free(socket_name);
+    const kwin_bin = getenvSlice("WAYPLUG_KWIN_BIN") orelse "kwin_wayland";
+    const kwin_argv = [_][]const u8{
+        "dbus-run-session",
+        "--",
+        kwin_bin,
+        "--virtual",
+        "--width",
+        "320",
+        "--height",
+        "240",
+        "--socket",
+        socket_name,
+        "--no-lockscreen",
+        "--no-global-shortcuts",
+        "--no-kactivities",
+    };
+    try runCompositorSmoke(.{
+        .compositor = .kwin,
+        .name = "kwin",
+        .socket_name = socket_name,
+        .argv = kwin_argv[0..],
+        .set_wayland_display_env = false,
+        .required = smokeRequired(filter, .kwin),
+    });
+}
+
 fn runCompositorSmoke(spec: CompositorSmokeSpec) !void {
     const allocator = std.testing.allocator;
     const nonce = c.getpid();
@@ -757,6 +795,7 @@ fn smokeFilter() SmokeFilter {
     if (std.mem.eql(u8, raw, "river")) return .river;
     if (std.mem.eql(u8, raw, "mutter")) return .mutter;
     if (std.mem.eql(u8, raw, "niri")) return .niri;
+    if (std.mem.eql(u8, raw, "kwin")) return .kwin;
     if (std.mem.eql(u8, raw, "all")) return .all;
     return .available;
 }
@@ -768,6 +807,7 @@ fn smokeSelected(filter: SmokeFilter, compositor: SmokeCompositor) bool {
         .river => compositor == .river,
         .mutter => compositor == .mutter,
         .niri => compositor == .niri,
+        .kwin => compositor == .kwin,
     };
 }
 
@@ -777,6 +817,7 @@ fn smokeRequired(filter: SmokeFilter, compositor: SmokeCompositor) bool {
         .river => filter == .river,
         .mutter => filter == .mutter,
         .niri => filter == .niri,
+        .kwin => filter == .kwin,
     };
 }
 
