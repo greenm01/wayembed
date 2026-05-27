@@ -7,6 +7,10 @@
 const std = @import("std");
 const types = @import("../data/types.zig");
 const model_mod = @import("../data/model.zig");
+const buffer = @import("buffer.zig");
+const embed = @import("embed.zig");
+const resource = @import("resource.zig");
+const surface = @import("surface.zig");
 const wlc = @import("../wayland/client.zig");
 const wls = @import("../wayland/server.zig");
 const errors = @import("../errors.zig");
@@ -44,13 +48,46 @@ pub fn clientSetWaylandHandles(
 }
 
 pub fn clientDestroy(m: *model_mod.Model, id: types.ClientId) void {
-    if (m.clients.get(id)) |c| {
-        if (c.wl_client) |wl_client| _ = m.client_by_wl_client.swapRemove(wl_client);
-        if (c.wl_display) |display| _ = m.client_by_display.swapRemove(display);
-    }
-    // TODO: walk owned resources, embeds, surfaces, buffers per the
-    // teardown order in docs/architecture.md § Teardown Order.
+    const c = m.clients.getMutable(id) orelse return;
+    c.state = .closing;
+
+    while (findOwnedEmbed(m, id)) |embed_id| embed.embedDestroy(m, embed_id);
+    while (findOwnedSurface(m, id)) |surface_id| surface.surfaceDestroy(m, surface_id);
+    while (findOwnedBuffer(m, id)) |buffer_id| buffer.bufferDestroy(m, buffer_id);
+    while (findOwnedResource(m, id)) |resource_id| resource.resourceDestroy(m, resource_id);
+
+    if (c.wl_client) |wl_client| _ = m.client_by_wl_client.swapRemove(wl_client);
+    if (c.wl_display) |display| _ = m.client_by_display.swapRemove(display);
+    c.state = .dead;
     _ = m.clients.delete(id);
+}
+
+fn findOwnedEmbed(m: *const model_mod.Model, client_id: types.ClientId) ?types.EmbedId {
+    for (m.embeds.items()) |record| {
+        if (record.client_id == client_id) return record.id;
+    }
+    return null;
+}
+
+fn findOwnedSurface(m: *const model_mod.Model, client_id: types.ClientId) ?types.SurfaceId {
+    for (m.surfaces.items()) |record| {
+        if (record.client_id == client_id) return record.id;
+    }
+    return null;
+}
+
+fn findOwnedBuffer(m: *const model_mod.Model, client_id: types.ClientId) ?types.BufferId {
+    for (m.buffers.items()) |record| {
+        if (record.client_id == client_id) return record.id;
+    }
+    return null;
+}
+
+fn findOwnedResource(m: *const model_mod.Model, client_id: types.ClientId) ?types.ResourceId {
+    for (m.resources.items()) |record| {
+        if (record.client_id == client_id) return record.id;
+    }
+    return null;
 }
 
 // ===== Queries =====

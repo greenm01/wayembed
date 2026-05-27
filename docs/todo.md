@@ -56,11 +56,12 @@ silently downgrading them, invalid binds queue `protocol_error`
 diagnostics, and tests cover version selection plus host-supplied global
 registration.
 
-### Complete embed teardown
+### ~~Complete embed teardown~~
 
-`wayplug_embed_attach` creates and tracks an upstream subsurface. Add the
-remaining teardown path so embed/resource/surface indexes are cleared in
-the order described by [architecture.md](architecture.md).
+Done: client teardown now clears owned embeds, surfaces, buffers,
+resources, and relationship indexes before `client_closed` effects fire.
+Regression tests cover full embed graph cleanup and multi-client
+preservation.
 
 ### End-to-end compositor smoke
 

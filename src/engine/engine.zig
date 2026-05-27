@@ -49,8 +49,8 @@ pub const Engine = struct {
 
     pub fn clientDestroy(self: *Engine, id: types.ClientId) !void {
         if (!self.model.clients.contains(id)) return;
-        try self.effects.push(.{ .client_closed = id });
         client.clientDestroy(&self.model, id);
+        try self.effects.push(.{ .client_closed = id });
     }
 
     pub fn protocolError(self: *Engine, client_id: types.ClientId, code: u32) !void {

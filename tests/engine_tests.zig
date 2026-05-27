@@ -3,6 +3,18 @@
 const std = @import("std");
 const wayplug = @import("wayplug");
 
+fn fakeWlClient(comptime address: usize) *wayplug.wayland.server.wl_client {
+    return @ptrFromInt(address);
+}
+
+fn fakeDisplay(comptime address: usize) *wayplug.wayland.client.wl_display {
+    return @ptrFromInt(address);
+}
+
+fn fakeProxy(comptime address: usize) *wayplug.wayland.client.wl_proxy {
+    return @ptrFromInt(address);
+}
+
 test "embed attaches a child surface and clears on destroy" {
     var m = wayplug.data.model.Model.init(std.testing.allocator);
     defer m.deinit();
@@ -40,4 +52,86 @@ test "effect queue retains append order until cleared" {
 
     q.clear();
     try std.testing.expectEqual(@as(usize, 0), q.count());
+}
+
+test "clientDestroy tears down owned embed graph and indexes before client_closed effect" {
+    var engine = wayplug.engine.Engine.init(std.testing.allocator);
+    defer engine.deinit();
+
+    const cid = try engine.clientCreate(-1, -1);
+    try engine.clientSetWaylandHandles(cid, fakeWlClient(0x1000), fakeDisplay(0x2000));
+
+    const parent_rid = try engine.resourceCreate(cid, .surface, null, fakeProxy(0x3000));
+    const child_rid = try engine.resourceCreate(cid, .surface, null, fakeProxy(0x4000));
+    const subsurface_rid = try engine.resourceCreate(cid, .subsurface, null, fakeProxy(0x5000));
+    const buffer_rid = try engine.resourceCreate(cid, .buffer, null, fakeProxy(0x6000));
+    const callback_rid = try engine.resourceCreate(cid, .callback, null, fakeProxy(0x7000));
+    const region_rid = try engine.resourceCreate(cid, .region, null, fakeProxy(0x8000));
+
+    const parent_sid = try engine.surfaceCreate(cid, parent_rid);
+    const child_sid = try engine.surfaceCreate(cid, child_rid);
+    const buffer_id = try wayplug.engine.buffer.bufferCreate(&engine.model, cid, buffer_rid);
+    const embed_id = try engine.embedCreate(cid, parent_sid);
+    try engine.embedAttachChild(embed_id, child_sid);
+    try engine.embedSetSubsurfaceResource(embed_id, subsurface_rid);
+
+    try std.testing.expect(engine.model.client_by_wl_client.get(fakeWlClient(0x1000)).? == cid);
+    try std.testing.expect(engine.model.resource_by_upstream_proxy.get(fakeProxy(0x5000)).? == subsurface_rid);
+    try std.testing.expect(engine.model.surface_by_resource.get(child_rid).? == child_sid);
+    try std.testing.expect(engine.model.buffer_by_resource.get(buffer_rid).? == buffer_id);
+    try std.testing.expect(engine.model.embed_by_child_surface.get(child_sid).? == embed_id);
+    engine.effects.clear();
+
+    try engine.clientDestroy(cid);
+
+    try std.testing.expect(!engine.model.clients.contains(cid));
+    try std.testing.expect(!engine.model.embeds.contains(embed_id));
+    try std.testing.expect(!engine.model.surfaces.contains(parent_sid));
+    try std.testing.expect(!engine.model.surfaces.contains(child_sid));
+    try std.testing.expect(!engine.model.buffers.contains(buffer_id));
+    try std.testing.expect(!engine.model.resources.contains(parent_rid));
+    try std.testing.expect(!engine.model.resources.contains(child_rid));
+    try std.testing.expect(!engine.model.resources.contains(subsurface_rid));
+    try std.testing.expect(!engine.model.resources.contains(buffer_rid));
+    try std.testing.expect(!engine.model.resources.contains(callback_rid));
+    try std.testing.expect(!engine.model.resources.contains(region_rid));
+    try std.testing.expect(engine.model.client_by_wl_client.get(fakeWlClient(0x1000)) == null);
+    try std.testing.expect(engine.model.client_by_display.get(fakeDisplay(0x2000)) == null);
+    try std.testing.expect(engine.model.resource_by_upstream_proxy.get(fakeProxy(0x5000)) == null);
+    try std.testing.expect(engine.model.surface_by_resource.get(child_rid) == null);
+    try std.testing.expect(engine.model.buffer_by_resource.get(buffer_rid) == null);
+    try std.testing.expect(engine.model.embed_by_child_surface.get(child_sid) == null);
+    try std.testing.expect(engine.model.embed_by_parent_surface.get(parent_sid) == null);
+    try std.testing.expectEqual(@as(usize, 1), engine.effects.count());
+    try std.testing.expectEqual(cid, engine.effects.pending()[0].client_closed);
+}
+
+test "clientDestroy preserves records owned by other clients" {
+    var engine = wayplug.engine.Engine.init(std.testing.allocator);
+    defer engine.deinit();
+
+    const doomed = try engine.clientCreate(-1, -1);
+    const kept = try engine.clientCreate(-1, -1);
+    try engine.clientSetWaylandHandles(doomed, fakeWlClient(0x9000), fakeDisplay(0xa000));
+    try engine.clientSetWaylandHandles(kept, fakeWlClient(0xb000), fakeDisplay(0xc000));
+
+    const doomed_resource = try engine.resourceCreate(doomed, .surface, null, fakeProxy(0xd000));
+    const doomed_surface = try engine.surfaceCreate(doomed, doomed_resource);
+    const kept_resource = try engine.resourceCreate(kept, .surface, null, fakeProxy(0xe000));
+    const kept_surface = try engine.surfaceCreate(kept, kept_resource);
+    engine.effects.clear();
+
+    try engine.clientDestroy(doomed);
+
+    try std.testing.expect(!engine.model.clients.contains(doomed));
+    try std.testing.expect(!engine.model.surfaces.contains(doomed_surface));
+    try std.testing.expect(!engine.model.resources.contains(doomed_resource));
+    try std.testing.expect(engine.model.clients.contains(kept));
+    try std.testing.expect(engine.model.surfaces.contains(kept_surface));
+    try std.testing.expect(engine.model.resources.contains(kept_resource));
+    try std.testing.expect(engine.model.client_by_wl_client.get(fakeWlClient(0xb000)).? == kept);
+    try std.testing.expect(engine.model.client_by_display.get(fakeDisplay(0xc000)).? == kept);
+    try std.testing.expect(engine.model.resource_by_upstream_proxy.get(fakeProxy(0xe000)).? == kept_resource);
+    try std.testing.expect(engine.model.surface_by_resource.get(kept_resource).? == kept_surface);
+    try std.testing.expectEqual(doomed, engine.effects.pending()[0].client_closed);
 }

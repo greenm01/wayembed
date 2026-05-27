@@ -173,6 +173,12 @@ pub const Server = struct {
     }
 
     fn closeClientHandle(self: *Server, handle: *ClientHandle, emit_effect: bool) void {
+        if (emit_effect) {
+            self.engine.clientDestroy(handle.client_id) catch {};
+            handle.close_pending = true;
+        } else {
+            @import("engine/client.zig").clientDestroy(&self.engine.model, handle.client_id);
+        }
         if (handle.display) |display| {
             wlc.c.wl_display_disconnect(display);
             handle.display = null;
@@ -180,12 +186,6 @@ pub const Server = struct {
         if (handle.wl_client) |wl_client| {
             wls.c.wl_client_destroy(wl_client);
             handle.wl_client = null;
-        }
-        if (emit_effect) {
-            self.engine.clientDestroy(handle.client_id) catch {};
-            handle.close_pending = true;
-        } else {
-            @import("engine/client.zig").clientDestroy(&self.engine.model, handle.client_id);
         }
     }
 
