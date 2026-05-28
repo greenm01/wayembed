@@ -136,7 +136,7 @@ Advertised globals include:
 - `xdg_wm_base`
 - `zwp_linux_dmabuf_v1`
 
-Notably, the project does not currently implement `xdg_foreign`.
+The project does not implement `xdg_foreign`.
 
 ## Resource Mapping
 

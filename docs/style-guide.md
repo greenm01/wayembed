@@ -371,5 +371,4 @@ Split a module also when it starts mixing domains:
 - query helpers plus mutation
 - C ABI validation plus protocol implementation
 
-Small focused files keep protocol behavior easier to audit and read
-under the context budgets of both human review and AI assistants.
+Small focused files keep protocol behavior easy to audit and read.

@@ -14,8 +14,6 @@ Next work:
 - Build a real-host VST3 spike against the VST3 3.8 Wayland path.
 - Add adapter helper APIs only when real host glue shows repeated code that the
   core can own without taking over plugin loading.
-- Keep Element and Carla notes focused on host integration shape, not local
-  troubleshooting history.
 
 ## Tests and CI
 

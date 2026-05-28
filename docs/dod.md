@@ -1,13 +1,12 @@
 # Data-Oriented Design
 
-`wayembed` should use a data-oriented runtime built from plain types, indexed
-state, explicit mutation operations, query facades, systems for policy, and
-thin protocol adapters.
+`wayembed` runs on a data-oriented core: plain records, indexed state, explicit
+mutation operations, query facades, systems for policy, and thin protocol
+adapters.
 
-The goal is not to turn Wayland into an Elm/TEA application. Wayland already
-has a protocol object model. `wayembed` should keep simple request/event
-forwarding direct, while using a data model for ownership, lifecycle, cleanup,
-diagnostics, and tests.
+This is not Elm/TEA. Wayland already has a protocol object model. Simple
+request/event forwarding stays direct. The data model carries ownership,
+lifecycle, cleanup, diagnostics, and tests.
 
 ## Core Rule
 
@@ -76,8 +75,8 @@ forwarding for hot paths; lifecycle and mutation go through the engine.
 
 ## Types
 
-The `types` layer should be boring. It should describe the model without
-implementing the model's behavior.
+The `types` layer is boring on purpose. It describes the model. It does not
+implement behavior.
 
 ```zig
 pub const ClientId = enum(u32) { null_id = 0, _ };
@@ -125,14 +124,14 @@ pub const Embed = struct {
 };
 ```
 
-The records should not grow methods like `surface.attach()` or
+Records do not grow methods like `surface.attach()` or
 `client.destroyAllResources()`. Those belong in protocol delegates and ops.
 
 ## Model
 
-The model should be table-oriented. It holds the server allocator. Every
-long-lived table and index uses that allocator. Ops and queries read the
-allocator from the model rather than taking it as a parameter.
+The model is table-oriented. It holds the server allocator. Every long-lived
+table and index uses that allocator. Ops and queries read the allocator from
+the model instead of taking it as a parameter.
 
 ```zig
 pub const WayembedModel = struct {
@@ -173,7 +172,7 @@ EntityManager(T)
 Deletion may use swap-and-pop internally. Logical ids remain stable. Callers
 must not depend on physical array position.
 
-The entity manager should provide only low-level CRUD:
+The entity manager exposes only low-level CRUD:
 
 ```text
 insert(record)
@@ -184,7 +183,7 @@ getMutable(id)
 items()
 ```
 
-It should not understand Wayland, embeds, clients, or cleanup policy.
+It does not understand Wayland, embeds, clients, or cleanup policy.
 
 ## ID Generation
 
@@ -205,7 +204,7 @@ future generation scheme makes reuse explicit.
 
 ## Indexes
 
-Hot lookups should use indexes instead of scans.
+Hot lookups use indexes, not scans.
 
 ```text
 wl_client *    -> ClientId
@@ -218,14 +217,12 @@ SurfaceId      -> EmbedId
 ClientId       -> ResourceId list
 ```
 
-Indexes are owned by the state layer. They are maintained by ops. Protocol
-delegates should ask the facade for the ids or upstream handles they need.
+Indexes are owned by the state layer and maintained by ops. Protocol delegates
+ask the facade for the ids or upstream handles they need.
 
 ## Iterators
 
 Iterators expose traversal without exposing storage internals.
-
-Examples:
 
 ```text
 clientsWithId()
@@ -236,7 +233,7 @@ embedsForClient(client_id)
 outputsWithId()
 ```
 
-Hot dispatch-time paths should prefer iterators, ids, or borrowed views over
+Hot dispatch paths prefer iterators, ids, or borrowed views over
 allocation-returning helpers.
 
 Allocation-returning helpers are acceptable for snapshots, diagnostics, and
@@ -249,9 +246,7 @@ is ascending logical id.
 
 ## Queries
 
-Queries answer domain questions. They should not mutate state.
-
-Examples:
+Queries answer domain questions. They never mutate state.
 
 ```text
 clientForDisplay(display)
@@ -373,7 +368,7 @@ They should not:
 
 ## Direct Forwarding Path
 
-Simple hot-path requests should stay direct.
+Simple hot-path requests stay direct.
 
 ```text
 wl_surface.attach
@@ -398,11 +393,11 @@ wl_pointer.motion event
   wl_pointer_send_motion(plugin_pointer_resource, ...)
 ```
 
-These should not go through a `Msg -> update -> Cmd` loop.
+None of these go through a `Msg -> update -> Cmd` loop.
 
 ## Operation Path
 
-Lifecycle-sensitive callbacks should go through ops.
+Lifecycle-sensitive callbacks go through ops.
 
 ```text
 wl_compositor.create_surface
@@ -434,8 +429,6 @@ client disconnect
 The runtime can separate model updates from host-visible notifications and
 deferred Wayland work with a lightweight effect layer.
 
-Examples:
-
 ```text
 EffectClientClosed(client_id)
 EffectEmbedMapped(embed_id)
@@ -457,8 +450,6 @@ and must not call back into ops.
 
 Add invariant checks early. They will catch the most expensive bugs.
 
-Examples:
-
 - every resource's `client_id` exists
 - every `wl_resource *` index points to an existing resource
 - every upstream proxy index points to an existing resource
@@ -479,7 +470,7 @@ because they encode domain knowledge `@typeInfo()` cannot infer.
 
 ## Snapshots
 
-Diagnostics should expose snapshots instead of raw internal tables.
+Diagnostics expose snapshots, not raw internal tables.
 
 ```text
 ServerSnapshot
@@ -498,7 +489,7 @@ Snapshots are useful for:
 - debugging cleanup order
 - reproducing compositor-specific behavior
 
-Snapshots may allocate. Hot protocol paths should not.
+Snapshots may allocate. Hot protocol paths must not.
 
 A snapshot is caller-owned. The snapshot function allocates with the server
 allocator and returns a value the caller releases with `snapshotFree()`. The
@@ -544,7 +535,7 @@ coherent internal model for the parts most likely to break.
 
 ## Non-Goal
 
-`wayembed` should not become a full Elm/TEA runtime.
+This is not a full Elm/TEA runtime.
 
 Avoid this for every request:
 
@@ -552,7 +543,7 @@ Avoid this for every request:
 Msg -> update(Model) -> Cmd -> Wayland call
 ```
 
-That pattern is too indirect for protocol forwarding. The useful part is
-the separation between `data/` (records, storage, indexes) and `engine/`
-(operations, queries, policy), and between both of those and the protocol
-adapters. Apply that separation where it clarifies ownership and cleanup.
+That pattern is too indirect for protocol forwarding. The useful split is
+between `data/` (records, storage, indexes) and `engine/` (operations,
+queries, policy), and between both of those and the protocol adapters. Apply
+the split where it clarifies ownership and cleanup. Skip it elsewhere.

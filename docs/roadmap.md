@@ -57,7 +57,7 @@ Initial smoke coverage:
 - Provide experimental CLAP, LV2, and VST3 handoff mappings in
   `include/wayembed_adapters.h`.
 - Prove display and fd handoff paths through `wayembed-sandbox`.
-- Document Carla- and Element-shaped host integration.
+- Document end-to-end host integration shape.
 - Use real-host spikes to decide whether adapter helper APIs belong in
   wayembed or in host glue.
 

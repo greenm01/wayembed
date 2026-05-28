@@ -8,12 +8,12 @@ that server, and embeds the plugin editor under a host-owned parent surface.
 The public boundary is plain C, so hosts and plugins in any language can bind
 to it.
 
-The current target is audio plugin UI hosting for CLAP, LV2, and VST3. The
-core stays format-neutral. Format glue belongs in the host or adapter layer.
+The target is audio plugin UI hosting for CLAP, LV2, and VST3. The core stays
+format-neutral. Format glue belongs in the host or adapter layer.
 
 Floating plugin windows are a separate job. Embedded editors use
-`wl_subsurface`; floating editors and transient dialogs will need their own
-track.
+`wl_subsurface`; floating editors and transient dialogs get their own track
+later.
 
 ## Current Shape
 
@@ -36,22 +36,22 @@ wayembed.
 ## Proof of Concept
 
 [wayembed-sandbox](https://github.com/greenm01/wayembed-sandbox) is a minimal
-Nim host used to exercise the C ABI outside this repository. It has smoke
-coverage for CLAP, LV2, VST3, display and fd handoffs, C-created plugin
-surfaces, and a live VST3 Wayland path using
+Nim host that exercises the C ABI outside this repository. It covers CLAP,
+LV2, and VST3 handoffs across display and fd paths, plus C-created plugin
+surfaces. The live VST3 Wayland path runs against
 [nilamp](https://github.com/greenm01/nilamp).
 
 This is still proof work. `wayembed` does not load plugins, scan bundles,
 instantiate VST3 components, build LV2 feature arrays, or call CLAP GUI entry
 points. Real hosts own those jobs.
 
-[nilrack](https://github.com/greenm01/nilrack) is the planned native Wayland
-plugin host that will own that layer.
+[nilrack](https://github.com/greenm01/nilrack) is the native Wayland plugin
+host being built to own that layer.
 
 ## Build
 
-Build dependencies are Zig, pkg-config, libwayland client/server development
-files, `wayland-scanner`, and `wayland-protocols`.
+Needs Zig, pkg-config, libwayland client/server headers, `wayland-scanner`,
+and `wayland-protocols`.
 
 ```sh
 zig build

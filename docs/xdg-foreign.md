@@ -31,8 +31,8 @@ message.
 
 ## First Path: Host-Parented Delegated Toplevels
 
-The first wayembed floating-editor path should probably not start with a full
-`xdg_foreign` bridge.
+The first wayembed floating-editor path does not need a full `xdg_foreign`
+bridge.
 
 When a plugin connects to the wayembed display, wayembed creates the upstream
 `xdg_toplevel` on the host's real Wayland connection. That means the host and
@@ -72,10 +72,10 @@ Likely cases:
 - a sandbox boundary where the parent handle must cross IPC;
 - a host toolkit that exposes only a foreign toplevel handle path.
 
-In those cases the host should export its editor toplevel, pass the handle to
-the plugin side, and have the plugin side import the handle and parent its
-toplevel. If wayembed grows this support, it should expose only the minimum
-host callbacks needed to move handles. The host still owns process launch and
+In those cases the host exports its editor toplevel, passes the handle to the
+plugin side, and lets the plugin side import the handle and parent its
+toplevel. If wayembed grows this support, it exposes only the minimum host
+callbacks needed to move handles. The host still owns process launch and
 plugin-format transport.
 
 ## Related Protocols
@@ -102,7 +102,7 @@ foreign handle is revoked, imported children must become unparented or close.
 
 Do not keep a floating plugin editor alive after its audio plugin instance
 ends. Do not let a dialog outlive the plugin client that created it. These are
-host policy rules, but wayembed should make the easy path the safe one.
+host policy rules, but wayembed makes the easy path the safe one.
 
 ## API Boundary
 

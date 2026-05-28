@@ -2,7 +2,7 @@
 
 ## Core Wayland Pieces
 
-Embedded plugin UIs likely need at least:
+Embedded plugin UIs need at least:
 
 - `wl_compositor`
 - `wl_subcompositor`
@@ -21,7 +21,7 @@ Embedded plugin UIs likely need at least:
 - `xdg_popup`
 - `linux-dmabuf` eventually
 
-The MVP should start with shared-memory rendering before dmabuf.
+The MVP starts with shared-memory rendering before dmabuf.
 
 ## xdg_foreign_unstable_v2
 
@@ -38,7 +38,7 @@ draw inside a host surface.
 ## Subsurfaces
 
 `wl_subsurface` is the natural Wayland primitive for embedded UI composition.
-The plugin should create a child `wl_surface` and attach it as a subsurface of a
+The plugin creates a child `wl_surface` and attaches it as a subsurface of a
 host-provided parent surface.
 
 The difficult part is making the parent surface meaningful to the plugin in a
@@ -56,5 +56,5 @@ adopted `WaylandUI` standard.
 VST3 3.8 defines a Wayland path through `IWaylandHost`, `IWaylandFrame`, and
 the `WaylandSurfaceID` platform type.
 
-`wayembed` should be format-neutral at the core and provide CLAP, LV2, and VST3
-adapters as separate layers.
+`wayembed` is format-neutral at the core. CLAP, LV2, and VST3 adapters sit in
+a separate layer.

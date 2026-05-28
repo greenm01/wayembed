@@ -1,15 +1,14 @@
 # Architecture
 
-`wayembed` should use a hybrid architecture.
+`wayembed` uses a hybrid architecture.
 
-The Wayland protocol hot path should stay direct and object-oriented. A small
-central state layer should handle lifecycle, ownership, policy, and cleanup.
-This avoids forcing every Wayland request through an application-style update
-loop while still keeping the hard parts explicit.
+The Wayland protocol hot path stays direct and object-oriented. A small central
+state layer handles lifecycle, ownership, policy, and cleanup. Forcing every
+Wayland request through an application-style update loop would buy nothing and
+hide the hard parts.
 
-The data model and ownership rules are described in more detail in
-[Data-Oriented Design](dod.md). This document focuses on the larger module
-shape and runtime flow.
+The data model and ownership rules live in [Data-Oriented Design](dod.md). This
+page covers the module shape and runtime flow.
 
 ## Shape
 
@@ -46,8 +45,7 @@ Real Wayland compositor connection
 
 ## Project Tree
 
-This is the proposed starting structure. It is intentionally modular, but not
-deeply abstract. Each directory should have a narrow job.
+The source tree is modular, not deeply abstract. Each directory has one job.
 
 ```text
 wayembed/
@@ -120,18 +118,18 @@ one file lets the boundary live in function names instead.
 
 ## Module Roles
 
-`include/wayembed.h` is the stable public ABI. It should expose opaque handles,
-versioned structs, plain C callbacks, and no Zig-specific types.
+`include/wayembed.h` is the stable public ABI. It exposes opaque handles,
+versioned structs, and plain C callbacks. No Zig-specific types.
 
-`src/c_api.zig` should be the only layer that directly implements exported C
-symbols. It validates ABI structs, translates C handles into internal pointers,
-and calls the internal server API.
+`src/c_api.zig` is the only layer that implements exported C symbols. It
+validates ABI structs, translates C handles into internal pointers, and calls
+the internal server API.
 
 `src/server.zig` owns the runtime object behind `wayembed_server`. It wires
-together host callbacks, state, protocol setup, dispatch, flush, and teardown.
+host callbacks, state, protocol setup, dispatch, flush, and teardown together.
 
-`src/host.zig` wraps the host-provided callback table. Internal code should use
-this wrapper instead of reaching into the C ABI struct directly.
+`src/host.zig` wraps the host-provided callback table. Internal code uses this
+wrapper instead of reaching into the C ABI struct directly.
 
 `src/data/` holds the model. `types.zig` defines passive records, ids,
 enums, and flags. `model.zig` holds the `EntityManager` tables, indexes,
@@ -150,14 +148,12 @@ modules translate callbacks, validate ownership, forward simple requests,
 and call into `engine/` for lifecycle changes.
 
 `src/wayland/` is a thin binding/helper layer around generated Wayland
-interfaces and C imports. It should not own Wayembed state.
+interfaces and C imports. It does not own wayembed state.
 
 ## What Stays Direct
 
-Individual Wayland protocol requests should be forwarded directly by the
-delegate that owns the corresponding protocol object.
-
-Examples:
+Individual Wayland protocol requests forward directly through the delegate that
+owns the corresponding protocol object.
 
 ```text
 wl_surface.attach
@@ -186,8 +182,8 @@ Cmd` loop would add indirection without making the protocol behavior clearer.
 
 ## What Gets Centralized
 
-The central server state should own things that cross object boundaries or need
-consistent cleanup.
+Central server state owns anything that crosses object boundaries or needs
+ordered cleanup.
 
 ```text
 ServerState
@@ -212,7 +208,7 @@ EmbedState
   destroyed
 ```
 
-Central state should track:
+Central state tracks:
 
 - active clients
 - plugin connection fds/displays
@@ -227,8 +223,8 @@ Central state should track:
 
 ## Layer Boundary
 
-Protocol delegates should be allowed to forward simple requests immediately.
-They should notify central state when something changes the lifecycle model.
+Protocol delegates forward simple requests immediately. They notify central
+state only when something changes the lifecycle model.
 
 ```text
 Protocol delegate
@@ -303,7 +299,7 @@ polls on its own.
 
 ## Ownership Model
 
-The central server should own all long-lived objects.
+The central server owns every long-lived object.
 
 ```text
 WayembedServer
@@ -315,8 +311,8 @@ WayembedServer
   event queue / dispatch integration
 ```
 
-Delegates should hold stable references or ids back into those tables instead
-of becoming independent owners of cross-cutting state.
+Delegates hold stable references or ids back into those tables. They are not
+independent owners of cross-cutting state.
 
 ```text
 SurfaceDelegate
@@ -362,7 +358,7 @@ Wayland's "destroy children before parent" rule intact.
 
 ## Policy Belongs Above Protocol
 
-The protocol layer should avoid making host policy decisions.
+The protocol layer does not make host policy decisions.
 
 Good protocol-layer responsibilities:
 
@@ -411,8 +407,8 @@ after the lifecycle model is stable.
 
 ## Non-Goal
 
-`wayembed` should not become a full Elm/TEA runtime.
+`wayembed` is not a full Elm/TEA runtime.
 
-The useful part is not the TEA pattern itself. The useful part is having
-explicit state transitions for lifecycle-sensitive operations while preserving
-Wayland's native object/request/event model for protocol forwarding.
+The useful part is not the TEA pattern. The useful part is explicit state
+transitions for lifecycle-sensitive operations, while keeping Wayland's native
+object/request/event model for protocol forwarding.

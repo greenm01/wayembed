@@ -6,7 +6,7 @@
 - [Data-Oriented Design](dod.md) — `data/` model, `engine/` operations, queries, policy
 - [Style Guide](style-guide.md) — Zig style, C ABI rules, naming, ownership
 - [C ABI Sketch](c-abi-sketch.md) — historical API sketch and ABI rules
-- [Host Integration](host-integration.md) — Carla-style end-to-end walkthrough
+- [Host Integration](host-integration.md) — end-to-end host walkthrough
 - [Lifetime Rules](lifetime.md) — ownership and teardown rules
 - [Experimental Adapter Contract](adapter-contract.md) — Phase 3 CLAP/LV2/VST3 handoff contract
 - [VST3 Wayland Notes](vst3.md) — implications of VST3 3.8 Wayland support

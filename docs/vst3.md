@@ -55,10 +55,10 @@ wayembed
   forwards input, output, xdg, shm, and lifecycle events
 ```
 
-VST3 should not change the core library into a VST3 library. The core stays
-format-neutral. The adapter layer names the VST3 platform type and validates the
-handoff. Real VST3 hosts still own SDK loading, component creation, `IPlugView`,
-`IPlugFrame`, `IWaylandHost`, and `IWaylandFrame`.
+VST3 does not reshape the core. The core stays format-neutral. The adapter
+layer names the VST3 platform type and validates the handoff. Real VST3 hosts
+still own SDK loading, component creation, `IPlugView`, `IPlugFrame`,
+`IWaylandHost`, and `IWaylandFrame`.
 
 ## Adapter Mapping
 
@@ -77,7 +77,7 @@ WaylandSurfaceID
 This is not a new plugin protocol. It is the VST3 platform UI type that says
 the host is passing a parent `wl_surface`.
 
-A VST3 host integration should map the pieces this way:
+A VST3 host integration maps the pieces this way:
 
 ```text
 IWaylandHost::openWaylandConnection()
@@ -99,8 +99,8 @@ IWaylandFrame popup path
   -> wayembed forwards xdg popup protocol as needed
 ```
 
-The sandbox proof should stay light. It proves the order and the Wayland
-surface handoff without linking the VST3 SDK.
+The sandbox proof stays light. It proves the order and the Wayland surface
+handoff without linking the VST3 SDK.
 
 ## What Not To Do
 

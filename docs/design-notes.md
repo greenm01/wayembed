@@ -12,26 +12,14 @@ is not automatically meaningful to a plugin using another connection.
 
 ## Embedded vs Floating
 
-Embedded and floating plugin UIs should be treated as separate modes.
-
-Embedded UI:
-
-- plugin editor appears inside a host-owned panel, rack, graph node, or device
-  slot
-- plugin should draw into a child surface/subsurface
-- host should control geometry and lifecycle
-- this is the main `wayembed` target
-
-Floating UI:
-
-- plugin editor is a separate `xdg_toplevel`
-- host and plugin need transient/parent relationship
-- `xdg_foreign_unstable_v2` is the likely protocol-level fit
-- this may be supported later as a companion path
+Embedded and floating plugin UIs are separate modes. Embedded editors draw
+into a child subsurface under a host-owned parent — `wayembed`'s main target.
+Floating editors live as their own `xdg_toplevel` with a transient relation
+to the host, which is the [xdg_foreign](xdg-foreign.md) track.
 
 ## Delegated Wayland Connection
 
-The likely architecture is a delegated or nested Wayland server:
+The architecture is a delegated or nested Wayland server:
 
 1. Host connects to the real session compositor as a Wayland client.
 2. Host starts an internal Wayland server.
@@ -53,8 +41,8 @@ It creates a nested delegating Wayland server and forwards common interfaces
 such as `wl_compositor`, `wl_subcompositor`, `wl_surface`, `wl_shm`,
 `wl_seat`, `xdg_wm_base`, and Linux dmabuf.
 
-`wayembed` should learn from that design, but expose a C ABI and keep plugin
-framework integration explicit.
+`wayembed` borrows the shape but exposes a C ABI and keeps plugin framework
+integration explicit.
 
 ## Structural Divergence
 

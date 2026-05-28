@@ -35,9 +35,9 @@ data. For VST3, it can query parameters from the edit controller. Each format
 has its own rules. The host already knows those rules because it loads and runs
 the plugin.
 
-`wayembed` should not become a parameter UI toolkit. It should not render
-sliders, menus, meters, preset browsers, or automation lanes. It should not
-learn CLAP, LV2, or VST3 parameter models. That work lives in the host.
+`wayembed` is not a parameter UI toolkit. It does not render sliders, menus,
+meters, preset browsers, or automation lanes. It does not learn CLAP, LV2, or
+VST3 parameter models. That work lives in the host.
 
 The adapter layer can still help with the choice. A host can use
 `wayembed_get_features()`, `wayembed_adapter_handoff_validate()`,
@@ -45,9 +45,9 @@ The adapter layer can still help with the choice. A host can use
 `wayembed_adapter_resize_validate()` to decide whether a native path is ready.
 If the plugin does not opt in, the host falls back to generated controls.
 
-Generated controls should use host widgets and host state. They should not open
-a wayembed client connection. No plugin surface exists in this path, so there
-is nothing to attach with `wayembed_embed_attach()`.
+Generated controls use host widgets and host state. They do not open a
+wayembed client connection. No plugin surface exists in this path, so there is
+nothing to attach with `wayembed_embed_attach()`.
 
 ## XWayland Containment
 
@@ -60,9 +60,9 @@ on the host toolkit, compositor, and plugin process model. Some hosts can embed
 an X11 child window. Some can only manage a floating tool window. Some should
 refuse the editor and show generated controls instead.
 
-`wayembed` should not proxy X11. It should not speak XEmbed. It should not map
-X11 windows into Wayland surfaces. It should not add X11 lifetime rules to the
-core data model.
+`wayembed` does not proxy X11. It does not speak XEmbed. It does not map X11
+windows into Wayland surfaces. It does not add X11 lifetime rules to the core
+data model.
 
 The host can still run `wayembed` beside an XWayland fallback. A native
 Wayland-capable plugin uses the delegated server. A legacy plugin uses the

@@ -53,10 +53,6 @@ Nim host on purpose: it proves the C ABI from outside C and Zig.
 The sandbox also checks CLAP/LV2/VST3 handoff order and embeds C-created plugin
 surfaces through both display and fd handoffs.
 
-Element carries an opt-in real-host CLAP proof while XEmbed remains the default.
-That proof belongs above the core adapter layer: Element owns CLAP callbacks,
-toolkit state, and fallback policy.
-
 These are proof paths, not plugin loaders. Real CLAP, LV2, and VST3 hosts still
 own bundle loading, plugin instantiation, GUI callbacks, and process
 management.
@@ -88,7 +84,7 @@ header says Wayland embedding is not supported and floating windows should be
 used. The wayembed CLAP mapping is therefore an opt-in experiment between hosts
 and plugins that understand the wayembed token.
 
-A CLAP-shaped host should:
+A CLAP host:
 
 - open a wayembed client display before `clap_plugin_gui.create()`;
 - pass `handoff.format_token` as the API name and `handoff.display` as the
@@ -108,7 +104,7 @@ such as `ui:X11UI`, toolkit UIs, and feature passing, but it does not define
 a standard Wayland UI class. The wayembed LV2 mapping is therefore an external
 extension contract, not a standard LV2 UI class.
 
-An LV2-shaped host should:
+An LV2 host:
 
 - advertise the wayembed URI only to UIs that explicitly opt in;
 - pass the wayembed display through an LV2 feature payload owned by the
@@ -120,7 +116,7 @@ An LV2-shaped host should:
 Use `WAYEMBED_ADAPTER_VST3_PLATFORM_TYPE_WAYLAND_SURFACE_ID` as the VST3
 platform type. It maps to the VST3 3.8 Wayland `WaylandSurfaceID` path.
 
-A VST3-shaped host should:
+A VST3 host:
 
 - expose its wayembed display or fd through a host-side Wayland connection
   object;
@@ -135,19 +131,15 @@ The wayembed adapter proof does not link the VST3 SDK. Real VST3 hosts still
 own component creation, `IPlugView`, `IPlugFrame`, `IWaylandHost`, and
 `IWaylandFrame` integration.
 
-## Carla Notes
+## Host Notes
 
-For a Carla-style host, the adapter layer is thin:
-
-- the Carla plugin-format layer chooses the CLAP token, LV2 URI, or VST3
-  platform type;
-- the existing host integration path creates the server and opens the
-  client display or fd;
-- `on_surface_created` calls `wayembed_embed_attach()` for role-less plugin
-  surfaces, or waits for and adopts a plugin-created subsurface when the format
-  requires that stricter path;
-- Carla window resize still updates host editor dimensions and calls
-  `wayembed_embed_resize()` on that handle.
+The adapter layer stays thin. A host's plugin-format layer picks the CLAP
+token, LV2 URI, or VST3 platform type. The host integration path creates the
+server and opens the client display or fd. `on_surface_created` calls
+`wayembed_embed_attach()` for role-less plugin surfaces, or waits for and
+adopts a plugin-created subsurface when the format requires that stricter
+path. Host editor resize updates dimensions and calls
+`wayembed_embed_resize()` on the active embed handle.
 
 No adapter API in this first slice creates plugin instances, loads bundles,
 or dispatches CLAP/LV2/VST3 callbacks. Those responsibilities remain in the

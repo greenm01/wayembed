@@ -1,8 +1,8 @@
 # Host Integration Walkthrough
 
 This document shows the host calls needed to embed a Wayland-native plugin
-editor. The examples are Carla-shaped: a Qt audio plugin host with its own
-Wayland connection and an editor area inside a host window.
+editor. The examples assume a Qt-style audio plugin host with its own Wayland
+connection and an editor area inside a host window.
 
 The public ABI in [../include/wayembed.h](../include/wayembed.h) and
 [../include/wayembed_adapters.h](../include/wayembed_adapters.h) is the
@@ -92,7 +92,7 @@ The host provides upstream globals and lifecycle callbacks through
 notifications.
 
 ```c
-struct carla_host {
+struct host_state {
     struct wl_display *upstream_display;
     struct wl_compositor *upstream_compositor;
     struct wl_subcompositor *upstream_subcompositor;
@@ -111,7 +111,7 @@ static bool get_subsurface_offset(void *u, int32_t *x, int32_t *y,
                                   struct wl_surface *parent,
                                   struct wl_surface *child) {
     (void)display; (void)parent; (void)child;
-    struct carla_host *h = u;
+    struct host_state *h = u;
     *x = h->editor_x_in_window;
     *y = h->editor_y_in_window;
     return true;
@@ -127,7 +127,7 @@ The surface callback is where embedded mode starts:
 ```c
 static void on_surface_created(void *u, wayembed_client *client,
                                struct wl_surface *child) {
-    struct carla_host *h = u;
+    struct host_state *h = u;
     wayembed_embed_attach_info info = {
         .size = sizeof(info),
         .version = WAYEMBED_ABI_VERSION,
@@ -139,7 +139,7 @@ static void on_surface_created(void *u, wayembed_client *client,
     wayembed_embed *embed = NULL;
     uint32_t status = wayembed_embed_attach(&info, &embed);
     if (status != WAYEMBED_EMBED_STATUS_OK) {
-        carla_log_embed_attach_failure(status);
+        host_log_embed_attach_failure(status);
         return;
     }
 
@@ -171,7 +171,7 @@ static void on_embed_resized(void *u, wayembed_embed *embed,
 }
 
 static void on_embed_destroyed(void *u, wayembed_embed *embed) {
-    struct carla_host *h = u;
+    struct host_state *h = u;
     if (h->active_embed == embed) {
         h->active_embed = NULL;
     }
@@ -228,7 +228,7 @@ if (!wayembed_adapter_handoff_init(&handoff,
     return CLAP_WINDOW_API_FAILED;
 }
 
-carla_experimental_wayland_window window = {
+host_experimental_wayland_window window = {
     .api = handoff.format_token,
     .display = handoff.display,
 };
@@ -287,19 +287,10 @@ close(plugin_fd);
 wayembed_server_dispatch(server);
 ```
 
-## Carla And Element Notes
+## Format Notes
 
-Carla and Element already own the plugin-format layer. wayembed should sit
-under that layer, not replace it.
-
-The Element CLAP spike is the first real-host proof. It stays opt-in and does
-not replace Element's XEmbed path. The spike proves the adapter token, display
-handoff, and CLAP callback order. Visible embedding has a second runtime gate,
-`ELEMENT_WAYEMBED_CLAP_EMBED=1`. Stock JUCE 8.0.12 on Linux still exposes an
-X11 native window instead of a Wayland `wl_surface`, so Element logs that as a
-blocker. When Element is built against the `greenm01/JUCE` `wayland-juce8`
-fork with JUCE's Wayland backend enabled, the peer exposes the parent
-`wl_surface` and host Wayland globals that `wayembed_embed_attach()` needs.
+A format-aware host already owns the plugin-format layer. wayembed sits under
+that layer, not in place of it.
 
 For CLAP, the host opens a wayembed display before GUI creation, initializes a
 `WAYEMBED_ADAPTER_FORMAT_CLAP` handoff, and passes
@@ -356,8 +347,8 @@ Use `wayembed_embed_attach()` when the plugin creates a plain role-less child
 
 Use `wayembed_embed_adopt_subsurface()` for strict VST3 3.8 Wayland editors.
 In that path, the parent pointer passed to `IPlugView::attached()` must be a
-plugin-display proxy for the host editor `wl_surface`, and the host should
-adopt only after dispatching the plugin's `get_subsurface` request.
+plugin-display proxy for the host editor `wl_surface`, and the host adopts
+only after dispatching the plugin's `get_subsurface` request.
 
 Only one active embed per client is supported. A second
 attach or adopt call while an embed is active returns
@@ -390,16 +381,16 @@ status codes.
 Resize targets the embed handle, not the client.
 
 ```c
-void carla_on_window_resize(struct carla_host *h,
-                            int32_t width,
-                            int32_t height) {
+void host_on_window_resize(struct host_state *h,
+                           int32_t width,
+                           int32_t height) {
     if (!h->active_embed) {
         return;
     }
 
     uint32_t status = wayembed_embed_resize(h->active_embed, width, height);
     if (status != WAYEMBED_EMBED_STATUS_OK) {
-        carla_log_embed_resize_failure(status);
+        host_log_embed_resize_failure(status);
     }
 }
 ```
