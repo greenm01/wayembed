@@ -74,8 +74,8 @@ begins.
 
 Keep all format policy in host glue. Keep wayembed calls in the embedding
 layer: create the server, open the plugin display or fd, attach the first
-role-less surface the host wants to embed, resize the active embed, and close
-the client when the editor ends.
+role-less surface the host wants to embed or adopt the plugin-created
+subsurface, resize the active embed, and close the client when the editor ends.
 
 ## CLAP Mapping
 
@@ -125,7 +125,9 @@ A VST3-shaped host should:
 - expose its wayembed display or fd through a host-side Wayland connection
   object;
 - pass the host parent `wl_surface` through `IPlugView::attached()` with
-  `WaylandSurfaceID`;
+  `WaylandSurfaceID`, using a plugin-display proxy when needed;
+- adopt the plugin-created subsurface with
+  `wayembed_embed_adopt_subsurface()`;
 - map VST3 resize requests to `wayembed_adapter_resize` plus
   `wayembed_embed_resize()` on the active embed handle.
 
@@ -141,8 +143,9 @@ For a Carla-style host, the adapter layer is thin:
   platform type;
 - the existing host integration path creates the server and opens the
   client display or fd;
-- `on_surface_created` still calls `wayembed_embed_attach()` with Carla's
-  editor parent surface and stores the returned embed handle;
+- `on_surface_created` calls `wayembed_embed_attach()` for role-less plugin
+  surfaces, or waits for and adopts a plugin-created subsurface when the format
+  requires that stricter path;
 - Carla window resize still updates host editor dimensions and calls
   `wayembed_embed_resize()` on that handle.
 

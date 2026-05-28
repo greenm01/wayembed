@@ -59,8 +59,9 @@ objects during bind surface as `WL_DISPLAY_ERROR_IMPLEMENTATION`.
 void (*on_embed_mapped)(void *userdata, wayembed_embed *embed);
 ```
 
-Fires after `wayembed_embed_attach` establishes the parent/child/subsurface
-relationship. Use `wayembed_embed_id(embed)` for a stable log id.
+Fires after `wayembed_embed_attach` or `wayembed_embed_adopt_subsurface`
+establishes the parent/child/subsurface relationship. Use
+`wayembed_embed_id(embed)` for a stable log id.
 
 ```c
 void (*on_embed_resized)(void *userdata,

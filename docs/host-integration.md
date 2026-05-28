@@ -315,12 +315,15 @@ For VST3, the host uses
 `WAYEMBED_ADAPTER_VST3_PLATFORM_TYPE_WAYLAND_SURFACE_ID` for the VST3 3.8
 Wayland surface path. The host owns VST3 SDK integration and exposes the
 wayembed display through its Wayland host object. The plugin still creates the
-child `wl_surface`.
+child `wl_surface`. A strict VST3 Wayland plugin also creates the
+`wl_subsurface` relationship itself with the parent surface passed to
+`IPlugView::attached()`.
 
-The shared editor path stays the same for all three formats: `on_surface_created`
-calls `wayembed_embed_attach()` with the host editor parent surface, resize
-calls `wayembed_embed_resize()`, hide or destroy closes the plugin display or
-client fd, and `on_client_closed` clears the host's per-editor state.
+The shared editor path stays close for all three formats: create the wayembed
+server, open the plugin display or fd, wait for the plugin child surface, bind
+that surface into an embed, resize with `wayembed_embed_resize()`, close the
+plugin display or client fd when the editor ends, and clear per-editor state in
+`on_client_closed`.
 
 Do not synthesize a parent surface for an X11-only host window. An XWayland
 window is not a Wayland subsurface parent. Keep the display handoff proof alive
@@ -328,8 +331,8 @@ and report the missing parent `wl_surface` unless the host toolkit exposes one.
 
 ## Embedded Surface Contract
 
-Embedded mode is for a plain plugin `wl_surface`. wayembed turns that surface
-into a subsurface of the host parent surface.
+Embedded mode is for a plugin child surface under a host parent surface. There
+are two supported binding paths.
 
 `wayembed_embed_attach()` immediately:
 
@@ -339,13 +342,30 @@ into a subsurface of the host parent surface.
 - creates one active `wayembed_embed *` for the client;
 - queues `on_embed_mapped`.
 
+Use `wayembed_embed_attach()` when the plugin creates a plain role-less child
+`wl_surface` and expects the host to attach it.
+
+`wayembed_embed_adopt_subsurface()`:
+
+- expects the plugin to have already called
+  `wl_subcompositor.get_subsurface(child, parent)`;
+- adopts the existing child subsurface relationship;
+- positions it with `get_subsurface_offset`;
+- creates one active `wayembed_embed *` for the client;
+- queues `on_embed_mapped`.
+
+Use `wayembed_embed_adopt_subsurface()` for strict VST3 3.8 Wayland editors.
+In that path, the parent pointer passed to `IPlugView::attached()` must be a
+plugin-display proxy for the host editor `wl_surface`, and the host should
+adopt only after dispatching the plugin's `get_subsurface` request.
+
 Only one active embed per client is supported. A second
-`wayembed_embed_attach()` call while an embed is active returns
+attach or adopt call while an embed is active returns
 `WAYEMBED_EMBED_STATUS_ALREADY_EMBEDDED`. The host may ignore surfaces it does
 not want to embed; they remain delegated surfaces. If the plugin destroys the
 embedded child surface, wayembed destroys the embed and fires
-`on_embed_destroyed`. The same client may later create another surface and
-attach a new embed.
+`on_embed_destroyed`. The same client may later create another surface and bind
+a new embed.
 
 Attach status codes tell the host what to do:
 
@@ -355,8 +375,8 @@ Attach status codes tell the host what to do:
 | `WAYEMBED_EMBED_STATUS_INVALID_ARGUMENT` | Fix the host call site. |
 | `WAYEMBED_EMBED_STATUS_CLIENT_CLOSING` | Stop work for this client. |
 | `WAYEMBED_EMBED_STATUS_ALREADY_EMBEDDED` | Reuse or destroy the active embed first. |
-| `WAYEMBED_EMBED_STATUS_UNKNOWN_SURFACE` | Ignore this surface or wait for the next one. |
-| `WAYEMBED_EMBED_STATUS_SURFACE_HAS_ROLE` | The plugin made the surface a toplevel, popup, cursor, or subsurface first. |
+| `WAYEMBED_EMBED_STATUS_UNKNOWN_SURFACE` | Ignore this surface, wait for the next one, or keep dispatching until a strict-path subsurface exists. |
+| `WAYEMBED_EMBED_STATUS_SURFACE_HAS_ROLE` | `wayembed_embed_attach()` was used after the plugin gave the surface a toplevel, popup, cursor, or subsurface role. |
 | `WAYEMBED_EMBED_STATUS_UNSUPPORTED` | The host did not provide `get_subcompositor()`, so embedded subsurface mode cannot start. |
 | `WAYEMBED_EMBED_STATUS_UPSTREAM_FAILED` | Log diagnostics and fail the plugin UI. |
 | `WAYEMBED_EMBED_STATUS_UNKNOWN_EMBED` | Drop the stale embed handle. |
@@ -402,9 +422,10 @@ phase.
 
 XDG shell is delegated for plugin-created popups, menus, dialogs, or floating
 windows. It is not the embedding primitive. The embedded editor surface must
-stay role-less until `wayembed_embed_attach()` assigns the subsurface role. A
-surface that becomes `xdg_toplevel` or `xdg_popup` cannot also become the
-embedded surface.
+either stay role-less until `wayembed_embed_attach()` assigns the subsurface
+role, or become a subsurface itself before
+`wayembed_embed_adopt_subsurface()`. A surface that becomes `xdg_toplevel` or
+`xdg_popup` cannot also become the embedded surface.
 
 ## Teardown
 
