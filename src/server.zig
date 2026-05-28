@@ -578,6 +578,9 @@ pub const Server = struct {
     }
 
     pub fn resourceDestroyed(self: *Server, data: *ResourceData) void {
+        if (data.kind == .subsurface) {
+            self.engine.subsurfaceResourceDestroyed(data.resource_id);
+        }
         if (data.kind == .surface) {
             if (self.engine.surfaceForResource(data.resource_id)) |surface_id| {
                 if (self.engine.model.embed_by_child_surface.get(surface_id)) |embed_id| {
@@ -665,6 +668,67 @@ pub const Server = struct {
         return c_api.embed_status_ok;
     }
 
+    pub fn embedAdoptSubsurface(
+        self: *Server,
+        handle: *ClientHandle,
+        parent_surface: *wlp.wl_surface,
+        child_surface: *wlp.wl_surface,
+        out_handle: *?*EmbedHandle,
+    ) u32 {
+        out_handle.* = null;
+        if (handle.server != self) return c_api.embed_status_invalid_argument;
+        if (handle.close_pending) return c_api.embed_status_client_closing;
+        if (self.activeEmbedForClient(handle.client_id) != null) return c_api.embed_status_already_embedded;
+
+        const child_resource_id = self.engine.resourceForUpstreamProxy(@ptrCast(child_surface)) orelse return c_api.embed_status_unknown_surface;
+        const child_surface_id = self.engine.surfaceForResource(child_resource_id) orelse return c_api.embed_status_unknown_surface;
+        const child_role = self.engine.surfaceRole(child_surface_id) orelse return c_api.embed_status_unknown_surface;
+        if (child_role != .subsurface) return c_api.embed_status_unknown_surface;
+        const subsurface_resource_id = self.engine.subsurfaceResourceForSurface(child_surface_id) orelse return c_api.embed_status_unknown_surface;
+
+        var parent_resource_id: ?types.ResourceId = null;
+        var parent_surface_id: ?types.SurfaceId = null;
+        var embed_id: ?types.EmbedId = null;
+        var pending_embed_handle: ?*EmbedHandle = null;
+        var success = false;
+        defer if (!success) {
+            if (pending_embed_handle) |embed_handle| self.freeEmbedHandle(embed_handle);
+            if (embed_id) |id| engine_embed.embedDestroy(&self.engine.model, id);
+            if (parent_surface_id) |surface_id| engine_surface.surfaceDestroy(&self.engine.model, surface_id);
+            if (parent_resource_id) |resource_id| self.engine.resourceDestroy(resource_id);
+        };
+
+        parent_resource_id = self.engine.resourceCreate(
+            handle.client_id,
+            .surface,
+            null,
+            @ptrCast(parent_surface),
+        ) catch return c_api.embed_status_upstream_failed;
+        parent_surface_id = engine_surface.surfaceCreate(
+            &self.engine.model,
+            handle.client_id,
+            parent_resource_id.?,
+        ) catch return c_api.embed_status_upstream_failed;
+
+        embed_id = self.engine.embedCreate(handle.client_id, parent_surface_id.?) catch return c_api.embed_status_upstream_failed;
+        self.engine.embedAttachChild(embed_id.?, child_surface_id) catch return c_api.embed_status_upstream_failed;
+        self.engine.embedSetSubsurfaceResource(embed_id.?, subsurface_resource_id) catch return c_api.embed_status_upstream_failed;
+        const embed_handle = self.allocator.create(EmbedHandle) catch return c_api.embed_status_upstream_failed;
+        embed_handle.* = .{
+            .server = self,
+            .embed_id = embed_id.?,
+            .client_id = handle.client_id,
+        };
+        pending_embed_handle = embed_handle;
+        self.embed_handles.append(self.allocator, embed_handle) catch return c_api.embed_status_upstream_failed;
+        self.applyEmbedOffset(handle, embed_id.?);
+        self.engine.embedMap(embed_id.?) catch return c_api.embed_status_upstream_failed;
+        success = true;
+        pending_embed_handle = null;
+        out_handle.* = embed_handle;
+        return c_api.embed_status_ok;
+    }
+
     pub fn embedResize(self: *Server, handle: *EmbedHandle, width: i32, height: i32) u32 {
         if (handle.server != self) return c_api.embed_status_invalid_argument;
         if (handle.destroyed) return c_api.embed_status_unknown_embed;
@@ -710,10 +774,14 @@ pub const Server = struct {
         self.markEmbedDestroyed(embed_id);
 
         if (embed.subsurface_resource_id != .null_id) {
-            if (self.engine.upstreamProxyForResource(embed.subsurface_resource_id)) |proxy| {
-                wlc.c.wl_subsurface_destroy(@ptrCast(proxy));
+            const subsurface_resource = self.engine.model.resources.get(embed.subsurface_resource_id);
+            const plugin_owned = subsurface_resource != null and subsurface_resource.?.wl_resource != null;
+            if (!plugin_owned) {
+                if (self.engine.upstreamProxyForResource(embed.subsurface_resource_id)) |proxy| {
+                    wlc.c.wl_subsurface_destroy(@ptrCast(proxy));
+                }
+                self.engine.resourceDestroy(embed.subsurface_resource_id);
             }
-            self.engine.resourceDestroy(embed.subsurface_resource_id);
         }
         if (embed.host_parent_surface_id != .null_id) {
             if (self.engine.model.surfaces.get(embed.host_parent_surface_id)) |parent| {

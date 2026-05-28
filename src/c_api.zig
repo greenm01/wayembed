@@ -504,6 +504,26 @@ pub export fn wayembed_embed_attach(
     return status;
 }
 
+pub export fn wayembed_embed_adopt_subsurface(
+    info: ?*const WayembedEmbedAttachInfo,
+    out_embed: ?*?*wayembed_embed,
+) callconv(.c) u32 {
+    const out = out_embed orelse return embed_status_invalid_argument;
+    out.* = null;
+    const attach_info = info orelse return embed_status_invalid_argument;
+    if (attach_info.size < @sizeOf(WayembedEmbedAttachInfo)) return embed_status_invalid_argument;
+    if (attach_info.version != abi_version) return embed_status_invalid_argument;
+    const c = clientHandle(attach_info.client) orelse return embed_status_invalid_argument;
+    const parent = attach_info.parent_surface orelse return embed_status_invalid_argument;
+    const child = attach_info.child_surface orelse return embed_status_invalid_argument;
+    var handle: ?*server_mod.EmbedHandle = null;
+    const status = c.server.embedAdoptSubsurface(c, parent, child, &handle);
+    if (status == embed_status_ok) {
+        out.* = @ptrCast(handle.?);
+    }
+    return status;
+}
+
 pub export fn wayembed_embed_resize(
     embed: ?*wayembed_embed,
     width: i32,
@@ -575,6 +595,7 @@ test "Server null-handle is tolerated" {
     try std.testing.expect(!wayembed_snapshot_get_counts(null, null));
     try std.testing.expect(!wayembed_get_features(null));
     try std.testing.expectEqual(embed_status_invalid_argument, wayembed_embed_attach(null, null));
+    try std.testing.expectEqual(embed_status_invalid_argument, wayembed_embed_adopt_subsurface(null, null));
     try std.testing.expectEqual(embed_status_invalid_argument, wayembed_embed_resize(null, 0, 0));
     try std.testing.expectEqual(@as(u32, 0), wayembed_embed_id(null));
     try std.testing.expect(wayembed_embed_client(null) == null);

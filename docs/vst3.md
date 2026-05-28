@@ -51,7 +51,7 @@ plugin
 
 wayembed
   delegates plugin Wayland objects
-  attaches plugin child surface as a host subsurface
+  tracks the plugin-created child subsurface
   forwards input, output, xdg, shm, and lifecycle events
 ```
 
@@ -87,7 +87,8 @@ IWaylandHost::openWaylandConnection()
 IPlugView::attached(parent, WaylandSurfaceID)
   -> parent is a proxy for the host editor wl_surface on the plugin display
   -> plugin creates child wl_surface on the wayembed display
-  -> host attaches child through wayembed_embed_attach()
+  -> plugin creates wl_subsurface(child, parent)
+  -> host adopts that subsurface through wayembed_embed_adopt_subsurface()
 
 IPlugView resize path
   -> wayembed_adapter_resize_validate()
@@ -166,12 +167,12 @@ to the plugin.
 
 `wayembed_server_create_proxy()` provides that shape for parent `wl_surface`
 objects. The nilamp smoke editor validates that the parent belongs to the
-host-provided plugin display before it creates its child surface. That keeps the
-smoke aligned with VST3's `WaylandSurfaceID` ownership rule while leaving full
-plugin-created subsurface-role compatibility as later work.
+host-provided plugin display, creates a child surface, and assigns the
+subsurface role with `wl_subcompositor.get_subsurface(child, parent)`.
 
-The current embed API still expects the plugin-created child surface to be
-role-less when `on_surface_created` fires. `wayembed_embed_attach()` assigns the
-host-side subsurface role. A plugin that assigns its own subsurface role through
-`wl_subcompositor.get_subsurface` is following the VST3 3.8 wording more
-strictly, but that is a separate compatibility path from this smoke harness.
+The host must not call `wayembed_embed_attach()` for that strict path because
+the child surface already has a role. Instead, after dispatching the plugin's
+`get_subsurface` request, the host calls `wayembed_embed_adopt_subsurface()`.
+That records the existing parent-child relationship in the embed model and
+enables resize, offset, input, and lifecycle callbacks without creating a second
+subsurface.

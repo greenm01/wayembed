@@ -188,6 +188,11 @@ void wayembed_server_destroy_proxy(wayembed_server *server,
 uint32_t wayembed_embed_attach(const wayembed_embed_attach_info *info,
                                wayembed_embed **out_embed);
 
+/* Adopts a plugin-created child subsurface relationship.
+ * Call after the plugin has used wl_subcompositor.get_subsurface(child, parent). */
+uint32_t wayembed_embed_adopt_subsurface(const wayembed_embed_attach_info *info,
+                                         wayembed_embed **out_embed);
+
 uint32_t wayembed_embed_resize(wayembed_embed *embed,
                                int32_t width,
                                int32_t height);

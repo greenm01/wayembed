@@ -105,6 +105,7 @@ pub const Model = struct {
     resource_by_upstream_proxy: std.AutoArrayHashMapUnmanaged(*wlc.wl_proxy, types.ResourceId) = .empty,
     surface_by_resource: std.AutoArrayHashMapUnmanaged(types.ResourceId, types.SurfaceId) = .empty,
     buffer_by_resource: std.AutoArrayHashMapUnmanaged(types.ResourceId, types.BufferId) = .empty,
+    subsurface_by_child_surface: std.AutoArrayHashMapUnmanaged(types.SurfaceId, types.ResourceId) = .empty,
     embed_by_child_surface: std.AutoArrayHashMapUnmanaged(types.SurfaceId, types.EmbedId) = .empty,
     embed_by_parent_surface: std.AutoArrayHashMapUnmanaged(types.SurfaceId, types.EmbedId) = .empty,
 
@@ -126,6 +127,7 @@ pub const Model = struct {
         self.resource_by_upstream_proxy.deinit(self.allocator);
         self.surface_by_resource.deinit(self.allocator);
         self.buffer_by_resource.deinit(self.allocator);
+        self.subsurface_by_child_surface.deinit(self.allocator);
         self.embed_by_child_surface.deinit(self.allocator);
         self.embed_by_parent_surface.deinit(self.allocator);
     }

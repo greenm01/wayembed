@@ -24,6 +24,7 @@ pub fn surfaceDestroy(m: *model_mod.Model, id: types.SurfaceId) void {
     if (m.surfaces.get(id)) |s| {
         _ = m.surface_by_resource.swapRemove(s.resource_id);
     }
+    _ = m.subsurface_by_child_surface.swapRemove(id);
     _ = m.surfaces.delete(id);
 }
 
@@ -40,6 +41,32 @@ pub fn surfaceRole(m: *const model_mod.Model, id: types.SurfaceId) ?types.Surfac
 
 pub fn surfaceForResource(m: *const model_mod.Model, rid: types.ResourceId) ?types.SurfaceId {
     return m.surface_by_resource.get(rid);
+}
+
+pub fn setSubsurfaceResource(
+    m: *model_mod.Model,
+    surface_id: types.SurfaceId,
+    resource_id: types.ResourceId,
+) !void {
+    if (!m.surfaces.contains(surface_id)) return error.UnknownSurface;
+    if (!m.resources.contains(resource_id)) return error.UnknownResource;
+    try m.subsurface_by_child_surface.put(m.allocator, surface_id, resource_id);
+}
+
+pub fn subsurfaceResourceForSurface(
+    m: *const model_mod.Model,
+    surface_id: types.SurfaceId,
+) ?types.ResourceId {
+    return m.subsurface_by_child_surface.get(surface_id);
+}
+
+pub fn removeSubsurfaceResource(m: *model_mod.Model, resource_id: types.ResourceId) void {
+    for (m.subsurface_by_child_surface.values(), 0..) |known_resource_id, index| {
+        if (known_resource_id == resource_id) {
+            _ = m.subsurface_by_child_surface.swapRemoveAt(index);
+            return;
+        }
+    }
 }
 
 // ===== production code above =====
@@ -78,4 +105,35 @@ test "surface role query returns current role" {
     try std.testing.expect(surfaceRole(&m, sid).? == .none);
     try assignRole(&m, sid, .popup);
     try std.testing.expect(surfaceRole(&m, sid).? == .popup);
+}
+
+test "surface tracks plugin-created subsurface resource" {
+    var m = model_mod.Model.init(std.testing.allocator);
+    defer m.deinit();
+    const cid = try m.nextClientId();
+    const surface_rid = try m.nextResourceId();
+    const subsurface_rid = try m.nextResourceId();
+    try m.resources.insert(m.allocator, surface_rid, .{
+        .id = surface_rid,
+        .client_id = cid,
+        .kind = .surface,
+        .state = .alive,
+        .wl_resource = null,
+        .upstream_proxy = null,
+        .generation = 0,
+    });
+    try m.resources.insert(m.allocator, subsurface_rid, .{
+        .id = subsurface_rid,
+        .client_id = cid,
+        .kind = .subsurface,
+        .state = .alive,
+        .wl_resource = null,
+        .upstream_proxy = null,
+        .generation = 0,
+    });
+    const sid = try surfaceCreate(&m, cid, surface_rid);
+    try setSubsurfaceResource(&m, sid, subsurface_rid);
+    try std.testing.expect(subsurfaceResourceForSurface(&m, sid).? == subsurface_rid);
+    removeSubsurfaceResource(&m, subsurface_rid);
+    try std.testing.expect(subsurfaceResourceForSurface(&m, sid) == null);
 }

@@ -107,6 +107,22 @@ pub const Engine = struct {
         return surface.surfaceRole(&self.model, surface_id);
     }
 
+    pub fn surfaceSetSubsurfaceResource(
+        self: *Engine,
+        surface_id: types.SurfaceId,
+        resource_id: types.ResourceId,
+    ) !void {
+        try surface.setSubsurfaceResource(&self.model, surface_id, resource_id);
+    }
+
+    pub fn subsurfaceResourceForSurface(self: *const Engine, surface_id: types.SurfaceId) ?types.ResourceId {
+        return surface.subsurfaceResourceForSurface(&self.model, surface_id);
+    }
+
+    pub fn subsurfaceResourceDestroyed(self: *Engine, resource_id: types.ResourceId) void {
+        surface.removeSubsurfaceResource(&self.model, resource_id);
+    }
+
     pub fn bufferCreate(self: *Engine, client_id: types.ClientId, resource_id: types.ResourceId) !types.BufferId {
         return buffer.bufferCreate(&self.model, client_id, resource_id);
     }

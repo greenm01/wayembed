@@ -1,5 +1,5 @@
 //! Delegate for wl_subcompositor. Creates wl_subsurface resources and
-//! triggers embedAttachChild on the engine.
+//! records plugin-created subsurface relationships for later adoption.
 
 const std = @import("std");
 const runtime = @import("runtime.zig");
@@ -34,7 +34,7 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
             data.server.engine.surfaceAssignRole(surface_id, .subsurface) catch return;
             const subsurface = wlc.c.wl_subcompositor_get_subsurface(subcompositor, surface, parent) orelse return;
             const wl_client = client orelse return;
-            _ = data.server.createResource(
+            const subsurface_resource = data.server.createResource(
                 wl_client,
                 .subsurface,
                 &wls.c.wl_subsurface_interface,
@@ -42,7 +42,12 @@ pub fn Bindings(comptime Server: type, comptime ResourceData: type) type {
                 id,
                 @ptrCast(&subsurface_bindings.impl),
                 @ptrCast(subsurface),
-            );
+            ) orelse return;
+            const subsurface_data = H.dataForResource(subsurface_resource) orelse return;
+            data.server.engine.surfaceSetSubsurfaceResource(
+                surface_id,
+                subsurface_data.resource_id,
+            ) catch return;
         }
     };
 }
