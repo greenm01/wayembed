@@ -30,6 +30,7 @@ opaque string handle and another client import that handle. The importing
 client can set its own toplevel as a child/transient of the imported toplevel.
 
 This is useful for floating plugin editors and out-of-process dialogs.
+See [xdg-foreign.md](xdg-foreign.md) for the floating-window track.
 
 It is not sufficient for embedded plugin UIs because it does not let a plugin
 draw inside a host surface.

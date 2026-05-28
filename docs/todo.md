@@ -36,7 +36,8 @@ Remaining Phase 4 work:
 
 ## Deferred
 
-- `xdg_foreign` for floating editors and transient dialogs.
+- `xdg_foreign` for floating editors and transient dialogs; see
+  [xdg-foreign.md](xdg-foreign.md).
 - Linux dmabuf feedback objects and live device-specific dmabuf smoke coverage.
 - Stable public CLAP/LV2/VST3 extensions before more real host proof exists.
 - Full X11/XWayland compatibility inside the core delegated server.

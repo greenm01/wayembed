@@ -11,6 +11,7 @@
 - [Experimental Adapter Contract](adapter-contract.md) — Phase 3 CLAP/LV2/VST3 handoff contract
 - [VST3 Wayland Notes](vst3.md) — implications of VST3 3.8 Wayland support
 - [Plugin UI Fallbacks](plugin-ui-fallbacks.md) — generated controls and XWayland boundary
+- [xdg_foreign And Floating Editors](xdg-foreign.md) — transient and floating-window track
 - [Logging](logging.md) — host-side lifecycle logging and diagnostics
 
 ## Context
