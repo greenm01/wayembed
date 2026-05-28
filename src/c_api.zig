@@ -469,18 +469,19 @@ export fn wayembed_server_create_proxy(
     client_display: ?*wlc.wl_display,
     host_object: ?*wlc.wl_proxy,
 ) callconv(.c) ?*wlc.wl_proxy {
-    _ = server;
-    _ = client_display;
-    _ = host_object;
-    return null;
+    const s = server orelse return null;
+    const display = client_display orelse return null;
+    const object = host_object orelse return null;
+    return s.createProxy(display, object);
 }
 
 export fn wayembed_server_destroy_proxy(
     server: ?*server_mod.Server,
     proxy: ?*wlc.wl_proxy,
 ) callconv(.c) void {
-    _ = server;
-    _ = proxy;
+    const s = server orelse return;
+    const p = proxy orelse return;
+    s.destroyProxy(p);
 }
 
 pub export fn wayembed_embed_attach(

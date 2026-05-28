@@ -164,12 +164,11 @@ wayembed client display. If the host already has a real `wl_surface *` on its
 compositor connection, it needs a plugin-display proxy before passing the parent
 to the plugin.
 
-`wayembed_server_create_proxy()` is reserved for that shape, but it is not yet
-implemented. The first nilamp smoke editor is controlled: it validates the
-platform type, opens the host-provided Wayland connection, creates a child
-surface, and does not dereference the parent pointer. That proves the
-host-display handoff and embed attach path without claiming full VST3 parent
-proxy support.
+`wayembed_server_create_proxy()` provides that shape for parent `wl_surface`
+objects. The nilamp smoke editor validates that the parent belongs to the
+host-provided plugin display before it creates its child surface. That keeps the
+smoke aligned with VST3's `WaylandSurfaceID` ownership rule while leaving full
+plugin-created subsurface-role compatibility as later work.
 
 The current embed API still expects the plugin-created child surface to be
 role-less when `on_surface_created` fires. `wayembed_embed_attach()` assigns the

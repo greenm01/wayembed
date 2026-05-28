@@ -43,6 +43,13 @@ pub const EmbedHandle = struct {
     destroyed: bool = false,
 };
 
+pub const ParentProxyHandle = struct {
+    server: *Server,
+    client_id: types.ClientId,
+    proxy: *wlc.wl_proxy,
+    resource: ?*wls.wl_resource,
+};
+
 const OpenedClient = struct {
     handle: *ClientHandle,
     client_fd: c_int,
@@ -77,6 +84,7 @@ pub const Server = struct {
     queue: ?*wlc.wl_event_queue,
     client_handles: std.ArrayListUnmanaged(*ClientHandle) = .empty,
     embed_handles: std.ArrayListUnmanaged(*EmbedHandle) = .empty,
+    parent_proxy_handles: std.ArrayListUnmanaged(*ParentProxyHandle) = .empty,
     globals: std.ArrayListUnmanaged(*wls.wl_global) = .empty,
     dispatching: bool = false,
 
@@ -121,6 +129,10 @@ pub const Server = struct {
             self.allocator.destroy(handle);
         }
         self.embed_handles.deinit(self.allocator);
+        while (self.parent_proxy_handles.pop()) |handle| {
+            self.destroyParentProxyHandle(handle);
+        }
+        self.parent_proxy_handles.deinit(self.allocator);
         wls.c.wl_display_destroy_clients(self.display);
         wls.c.wl_display_destroy(self.display);
         self.engine.deinit();
@@ -249,6 +261,59 @@ pub const Server = struct {
         return true;
     }
 
+    pub fn createProxy(self: *Server, client_display: *wlc.wl_display, host_object: *wlc.wl_proxy) ?*wlc.wl_proxy {
+        const handle = self.findClientHandleByDisplay(client_display) orelse return null;
+        if (handle.close_pending) return null;
+        if (handle.wl_client == null) return null;
+        const class = wlc.c.wl_proxy_get_class(host_object) orelse return null;
+        if (!std.mem.eql(u8, std.mem.span(class), "wl_surface")) return null;
+
+        const proxy = wlc.c.wl_proxy_create(@ptrCast(client_display), &wlc.c.wl_surface_interface) orelse return null;
+        errdefer wlc.c.wl_proxy_destroy(proxy);
+
+        const resource = wls.c.wl_resource_create(
+            handle.wl_client.?,
+            &wls.c.wl_surface_interface,
+            4,
+            wlc.c.wl_proxy_get_id(proxy),
+        ) orelse return null;
+        errdefer wls.c.wl_resource_destroy(resource);
+
+        const data = self.allocator.create(ResourceData) catch return null;
+        errdefer self.allocator.destroy(data);
+        data.* = .{
+            .server = self,
+            .client_id = handle.client_id,
+            .resource_id = .null_id,
+            .wl_resource = resource,
+            .kind = .surface,
+            .upstream_proxy = host_object,
+        };
+
+        const parent_handle = self.allocator.create(ParentProxyHandle) catch return null;
+        errdefer self.allocator.destroy(parent_handle);
+        parent_handle.* = .{
+            .server = self,
+            .client_id = handle.client_id,
+            .proxy = proxy,
+            .resource = resource,
+        };
+
+        self.parent_proxy_handles.append(self.allocator, parent_handle) catch return null;
+        wls.c.wl_resource_set_implementation(resource, @ptrCast(&borrowed_surface_impl), data, borrowedSurfaceResourceDestroyed);
+        return proxy;
+    }
+
+    pub fn destroyProxy(self: *Server, proxy: *wlc.wl_proxy) void {
+        for (self.parent_proxy_handles.items, 0..) |handle, i| {
+            if (handle.proxy == proxy) {
+                _ = self.parent_proxy_handles.swapRemove(i);
+                self.destroyParentProxyHandle(handle);
+                return;
+            }
+        }
+    }
+
     fn findClientHandleByDisplay(self: *Server, display: *wlc.wl_display) ?*ClientHandle {
         for (self.client_handles.items) |handle| {
             if (handle.display == display) return handle;
@@ -269,6 +334,7 @@ pub const Server = struct {
 
     fn closeClientHandle(self: *Server, handle: *ClientHandle, emit_effect: bool) void {
         if (emit_effect and handle.close_pending) return;
+        self.releaseClientParentProxies(handle.client_id);
         self.releaseClientOwnedUpstreams(handle.client_id);
         if (emit_effect) {
             handle.close_pending = true;
@@ -364,6 +430,37 @@ pub const Server = struct {
             }
         }
         self.allocator.destroy(handle);
+    }
+
+    fn releaseClientParentProxies(self: *Server, client_id: types.ClientId) void {
+        var i: usize = 0;
+        while (i < self.parent_proxy_handles.items.len) {
+            const handle = self.parent_proxy_handles.items[i];
+            if (handle.client_id == client_id) {
+                _ = self.parent_proxy_handles.swapRemove(i);
+                self.destroyParentProxyHandle(handle);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    fn destroyParentProxyHandle(self: *Server, handle: *ParentProxyHandle) void {
+        if (handle.resource) |resource| {
+            handle.resource = null;
+            wls.c.wl_resource_destroy(resource);
+        }
+        wlc.c.wl_proxy_destroy(handle.proxy);
+        self.allocator.destroy(handle);
+    }
+
+    fn parentProxyResourceDestroyed(self: *Server, resource: *wls.wl_resource) void {
+        for (self.parent_proxy_handles.items) |handle| {
+            if (handle.resource == resource) {
+                handle.resource = null;
+                return;
+            }
+        }
     }
 
     fn markEmbedDestroyed(self: *Server, embed_id: types.EmbedId) void {
@@ -758,6 +855,71 @@ fn clientDestroyed(listener: ?*wls.wl_listener, data: ?*anyopaque) callconv(.c) 
     handle.wl_client = null;
     if (handle.close_pending) return;
     handle.server.closeClientHandle(handle, true);
+}
+
+fn borrowedSurfaceDestroy(_: ?*wls.wl_client, resource: ?*wls.wl_resource) callconv(.c) void {
+    if (resource) |r| wls.c.wl_resource_destroy(r);
+}
+
+fn borrowedSurfaceAttach(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: ?*wls.wl_resource, _: i32, _: i32) callconv(.c) void {}
+fn borrowedSurfaceDamage(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: i32, _: i32, _: i32, _: i32) callconv(.c) void {}
+
+fn borrowedSurfaceFrame(client: ?*wls.wl_client, _: ?*wls.wl_resource, id: u32) callconv(.c) void {
+    const wl_client = client orelse return;
+    const callback = wls.c.wl_resource_create(wl_client, &wls.c.wl_callback_interface, 1, id) orelse {
+        wls.c.wl_client_post_no_memory(wl_client);
+        return;
+    };
+    wls.c.wl_resource_destroy(callback);
+}
+
+fn borrowedSurfaceSetOpaqueRegion(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: ?*wls.wl_resource) callconv(.c) void {}
+fn borrowedSurfaceSetInputRegion(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: ?*wls.wl_resource) callconv(.c) void {}
+fn borrowedSurfaceCommit(_: ?*wls.wl_client, _: ?*wls.wl_resource) callconv(.c) void {}
+fn borrowedSurfaceSetBufferTransform(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: i32) callconv(.c) void {}
+fn borrowedSurfaceSetBufferScale(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: i32) callconv(.c) void {}
+fn borrowedSurfaceDamageBuffer(_: ?*wls.wl_client, _: ?*wls.wl_resource, _: i32, _: i32, _: i32, _: i32) callconv(.c) void {}
+
+fn borrowedSurfaceImpl() wls.c.struct_wl_surface_interface {
+    if (comptime @hasField(wls.c.struct_wl_surface_interface, "get_release")) {
+        return .{
+            .destroy = borrowedSurfaceDestroy,
+            .attach = borrowedSurfaceAttach,
+            .damage = borrowedSurfaceDamage,
+            .frame = borrowedSurfaceFrame,
+            .set_opaque_region = borrowedSurfaceSetOpaqueRegion,
+            .set_input_region = borrowedSurfaceSetInputRegion,
+            .commit = borrowedSurfaceCommit,
+            .set_buffer_transform = borrowedSurfaceSetBufferTransform,
+            .set_buffer_scale = borrowedSurfaceSetBufferScale,
+            .damage_buffer = borrowedSurfaceDamageBuffer,
+            .offset = null,
+            .get_release = null,
+        };
+    }
+    return .{
+        .destroy = borrowedSurfaceDestroy,
+        .attach = borrowedSurfaceAttach,
+        .damage = borrowedSurfaceDamage,
+        .frame = borrowedSurfaceFrame,
+        .set_opaque_region = borrowedSurfaceSetOpaqueRegion,
+        .set_input_region = borrowedSurfaceSetInputRegion,
+        .commit = borrowedSurfaceCommit,
+        .set_buffer_transform = borrowedSurfaceSetBufferTransform,
+        .set_buffer_scale = borrowedSurfaceSetBufferScale,
+        .damage_buffer = borrowedSurfaceDamageBuffer,
+        .offset = null,
+    };
+}
+
+const borrowed_surface_impl = borrowedSurfaceImpl();
+
+fn borrowedSurfaceResourceDestroyed(resource: ?*wls.wl_resource) callconv(.c) void {
+    const r = resource orelse return;
+    const data: *ResourceData = @ptrCast(@alignCast(wls.c.wl_resource_get_user_data(r) orelse return));
+    data.server.parentProxyResourceDestroyed(r);
+    data.deinit(data.server.allocator);
+    data.server.allocator.destroy(data);
 }
 
 const runtime_helpers = protocol_runtime.Helpers(Server, ResourceData);
